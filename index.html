@@ -17,19 +17,19 @@
 
         function getRandomCoordinate() {
             const usBounds = [
-                { minLat: 25.0, maxLat: 49.0, minLon: -124.784, maxLon: -67}, // Contiguous US
-                { minLat: 18.5, maxLat: 28, minLon: -167, maxLon: -152}, // Hawaii
-                { minLat: 54.0, maxLat: 71.538, minLon: -179.9, maxLon: -130.0}
+                { minLat: 25.0, maxLat: 49.0, minLon: -124.784, maxLon: -67 }, // Contiguous US
+                { minLat: 18.5, maxLat: 28, minLon: -167, maxLon: -152 }, // Hawaii
+                { minLat: 54.0, maxLat: 71.538, minLon1: 179, maxLon1: 180, minLon2: -180, maxLon2: -129.5 } // Alaska
             ];
 
             let rand = Math.random();
             let region;
             if (rand < 0.97) {
-                region = usBounds[0]; // Contiguous US (95%)
+                region = usBounds[0]; // Contiguous US (97%)
             } else if (rand < 0.98) {
                 region = usBounds[1]; // Hawaii (2%)
             } else {
-                region = usBounds[2]; // Alaska (3%)
+                region = usBounds[2]; // Alaska (1%)
             }
 
             const sinMinLat = Math.sin(region.minLat * Math.PI / 180);
@@ -37,7 +37,14 @@
             const randomSinLat = Math.random() * (sinMaxLat - sinMinLat) + sinMinLat;
             const lat = Math.asin(randomSinLat) * 180 / Math.PI;
 
-            const lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
+            let lon;
+            if (region.minLon1 !== undefined) {
+                lon = Math.random() < 0.5 
+                    ? Math.random() * (region.maxLon1 - region.minLon1) + region.minLon1 
+                    : Math.random() * (region.maxLon2 - region.minLon2) + region.minLon2;
+            } else {
+                lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
+            }
 
             return { lat, lon };
         }
