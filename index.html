@@ -17,25 +17,31 @@
 
         function getRandomCoordinate() {
             const usBounds = [
-                { minLat: 25.0, maxLat: 49.0, minLon: -124.784, maxLon: -67, weight: 0.98 }, // Contiguous US
-                { minLat: 19.501, maxLat: 28.402, minLon: -161.755, maxLon: -154.806, weight: 0.005 }, // Hawaii
-                { minLat: 54.0, maxLat: 71.538, minLon: -169.0, maxLon: -130.0, weight: 0.015 } // Alaska
+                { minLat: 25.0, maxLat: 49.0, minLon: -124.784, maxLon: -67, weight: 0.95 }, // Contiguous US
+                { minLat: 19.501, maxLat: 28.402, minLon: -161.755, maxLon: -154.806, weight: 0.02 }, // Hawaii
+                { minLat: 54.0, maxLat: 71.538, minLon: -169.0, maxLon: -130.0, weight: 0.03 } // Alaska
             ];
 
             let rand = Math.random();
             let region;
-            if (rand < 0.7) {
-                region = usBounds[0];
-            } else if (rand < 0.9) {
-                region = usBounds[1];
+            if (rand < 0.95) {
+                region = usBounds[0]; // Contiguous US (95%)
+            } else if (rand < 0.97) {
+                region = usBounds[1]; // Hawaii (2%)
             } else {
-                region = usBounds[2];
+                region = usBounds[2]; // Alaska (3%)
             }
 
-            return {
-                lat: Math.random() * (region.maxLat - region.minLat) + region.minLat,
-                lon: Math.random() * (region.maxLon - region.minLon) + region.minLon
-            };
+            // Corrected latitude selection using sine transformation
+            const sinMinLat = Math.sin(region.minLat * Math.PI / 180);
+            const sinMaxLat = Math.sin(region.maxLat * Math.PI / 180);
+            const randomSinLat = Math.random() * (sinMaxLat - sinMinLat) + sinMinLat;
+            const lat = Math.asin(randomSinLat) * 180 / Math.PI;
+
+            // Uniform longitude selection
+            const lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
+
+            return { lat, lon };
         }
 
         async function checkIfValidUSLocation(lat, lon) {
