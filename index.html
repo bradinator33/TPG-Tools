@@ -32,13 +32,11 @@
                 region = usBounds[2]; // Alaska (3%)
             }
 
-            // Corrected latitude selection using sine transformation
             const sinMinLat = Math.sin(region.minLat * Math.PI / 180);
             const sinMaxLat = Math.sin(region.maxLat * Math.PI / 180);
             const randomSinLat = Math.random() * (sinMaxLat - sinMinLat) + sinMinLat;
             const lat = Math.asin(randomSinLat) * 180 / Math.PI;
 
-            // Uniform longitude selection
             const lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
 
             return { lat, lon };
