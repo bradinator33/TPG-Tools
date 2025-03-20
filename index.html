@@ -25,11 +25,11 @@
             let rand = Math.random();
             let region;
             if (rand < 0.97) {
-                region = usBounds[0]; // Contiguous US (97%)
-            } else if (rand < 0.98) {
-                region = usBounds[1]; // Hawaii (2%)
+                region = usBounds[0];
+            } else if (rand < 0.99) {
+                region = usBounds[1];
             } else {
-                region = usBounds[2]; // Alaska (1%)
+                region = usBounds[2];
             }
 
             const sinMinLat = Math.sin(region.minLat * Math.PI / 180);
