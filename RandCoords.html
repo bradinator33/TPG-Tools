@@ -39,7 +39,7 @@
 
             let lon;
             if (region.minLon1 !== undefined) {
-                lon = Math.random() < 0.1
+                lon = Math.random() < 0.5 
                     ? Math.random() * (region.maxLon1 - region.minLon1) + region.minLon1 
                     : Math.random() * (region.maxLon2 - region.minLon2) + region.minLon2;
             } else {
@@ -53,10 +53,15 @@
             const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
             const response = await fetch(url);
             const data = await response.json();
-            if (data && data.address && data.address.country === "United States") {
-                return true;
+            
+            if (data && data.address && data.address.country === "United States" && !data.address.water) {
+                return {
+                    valid: true,
+                    state: data.address.state || "Unknown",
+                    county: data.address.county || "Unknown"
+                };
             }
-            return false;
+            return { valid: false };
         }
 
         async function generateRandomUSLocation() {
@@ -68,7 +73,7 @@
                 locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
                 validLocation = locationData.valid;
             }
-            document.getElementById("output").innerText = `${coord.lat}, ${coord.lon}\n ${locationData.county}, ${locationData.state}`;
+            document.getElementById("output").innerText = `${coord.lat}, ${coord.lon}\n${locationData.county}, ${locationData.state}`;
             const location = L.latLng(coord.lat, coord.lon);
             map.setView(location, 6);
 
