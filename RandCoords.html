@@ -39,7 +39,7 @@
 
             let lon;
             if (region.minLon1 !== undefined) {
-                lon = Math.random() < 0.5 
+                lon = Math.random() < 0.01
                     ? Math.random() * (region.maxLon1 - region.minLon1) + region.minLon1 
                     : Math.random() * (region.maxLon2 - region.minLon2) + region.minLon2;
             } else {
