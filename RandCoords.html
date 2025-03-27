@@ -66,7 +66,7 @@
                 coord = getRandomCoordinate();
                 validLocation = await checkIfValidUSLocation(coord.lat, coord.lon);
             }
-            document.getElementById("output").innerText = `Latitude: ${coord.lat}, Longitude: ${coord.lon}`;
+            document.getElementById("output").innerText = `${coord.lat}, ${coord.lon}\n ${locationData.county}, ${locationData.state}`;
             const location = L.latLng(coord.lat, coord.lon);
             map.setView(location, 6);
 
