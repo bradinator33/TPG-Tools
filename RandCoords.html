@@ -62,9 +62,11 @@
         async function generateRandomUSLocation() {
             let validLocation = false;
             let coord;
+            let locationData;
             while (!validLocation) {
                 coord = getRandomCoordinate();
-                validLocation = await checkIfValidUSLocation(coord.lat, coord.lon);
+                locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
+                validLocation = locationData.valid;
             }
             document.getElementById("output").innerText = `${coord.lat}, ${coord.lon}\n ${locationData.county}, ${locationData.state}`;
             const location = L.latLng(coord.lat, coord.lon);
