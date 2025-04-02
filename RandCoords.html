@@ -9,43 +9,48 @@
     <script>
         let map;
         let currentPin = null;
+        let selectedRegion = null;
 
         function initMap() {
             map = L.map('map').setView([37.8, -96], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
 
-        function getRandomCoordinate() {
-            const usBounds = [
-                { minLat: 25.0, maxLat: 49.0, minLon: -124.784, maxLon: -67 }, // Contiguous US
-                { minLat: 18.5, maxLat: 28, minLon: -167, maxLon: -152 }, // Hawaii
-                { minLat: 54.0, maxLat: 71.538, minLon1: 179, maxLon1: 180, minLon2: -180, maxLon2: -129.5 } // Alaska
+        function getRandomRegion() {
+            const regions = [
+                { name: "Contiguous US", minLat: 24.8, maxLat: 49.0, minLon: -124.72, maxLon: -66.8 },
+                { name: "Hawaii", minLat1: 18.8, maxLat1: 22.4, minLon1: -160.4, maxLon1: -154.1, minLat2: 23.051, maxLat2: 28.33, minLon2: -161.907, maxLon2: -177.435 },
+                { name: "Alaska", minLat: 54.0, maxLat: 71.538, minLon1: 179, maxLon1: 180, minLon2: -180, maxLon2: -129.5 }
             ];
-
             let rand = Math.random();
-            let region;
             if (rand < 0.97) {
-                region = usBounds[0];
-            } else if (rand < 0.99) {
-                region = usBounds[1];
+                return regions[0];
+            } else if (rand < 0.98) {
+                return regions[1];
             } else {
-                region = usBounds[2];
+                return regions[2];
             }
+        }
 
-            const sinMinLat = Math.sin(region.minLat * Math.PI / 180);
-            const sinMaxLat = Math.sin(region.maxLat * Math.PI / 180);
-            const randomSinLat = Math.random() * (sinMaxLat - sinMinLat) + sinMinLat;
-            const lat = Math.asin(randomSinLat) * 180 / Math.PI;
-
-            let lon;
-            if (region.minLon1 !== undefined) {
+        function getRandomCoordinate(region) {
+            let lat, lon;
+            if (region.minLat1 !== undefined) {
+                if (Math.random() < 0.99) {
+                    lat = Math.random() * (region.maxLat1 - region.minLat1) + region.minLat1;
+                    lon = Math.random() * (region.maxLon1 - region.minLon1) + region.minLon1;
+                } else {
+                    lat = Math.random() * (region.maxLat2 - region.minLat2) + region.minLat2;
+                    lon = Math.random() * (region.maxLon2 - region.minLon2) + region.minLon2;
+                }
+            } else if (region.minLon1 !== undefined) {
                 lon = Math.random() < 0.01
                     ? Math.random() * (region.maxLon1 - region.minLon1) + region.minLon1 
                     : Math.random() * (region.maxLon2 - region.minLon2) + region.minLon2;
+                lat = Math.random() * (region.maxLat - region.minLat) + region.minLat;
             } else {
+                lat = Math.random() * (region.maxLat - region.minLat) + region.minLat;
                 lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
             }
-
             return { lat, lon };
         }
 
@@ -65,11 +70,12 @@
         }
 
         async function generateRandomUSLocation() {
+            selectedRegion = getRandomRegion();
             let validLocation = false;
             let coord;
             let locationData;
-            while (!validLocation) {
-                coord = getRandomCoordinate();
+            while (!validLocation || locationData.county === "Unknown") {
+                coord = getRandomCoordinate(selectedRegion);
                 locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
                 validLocation = locationData.valid;
             }
