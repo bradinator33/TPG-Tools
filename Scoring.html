@@ -88,7 +88,7 @@
 
                 if (player.distance <= 0.1) {
                     if (!tiedGroups.has("5K")) tiedGroups.set("5K", [])
-                    tiedGroups.get("5K").push({ name: player.name, score: 15000, rank: rank })
+                    tiedGroups.get("5K").push({ name: player.name, score: 15000, rank: rank, distance: player.distance })
                     return
                 }
 
@@ -102,14 +102,14 @@
                 let tied = false
                 for (let [key, group] of tiedGroups.entries()) {
                     if (key !== "5K" && haversine(player.lat, player.lon, group[0].lat, group[0].lon) <= 0.1) {
-                        group.push({ name: player.name, score, rank: group[0].rank })
+                        group.push({ name: player.name, score, rank: group[0].rank, distance: player.distance })
                         tied = true
                         break
                     }
                 }
 
                 if (!tied) {
-                    tiedGroups.set(player.distance, [{ name: player.name, score, rank: rank, lat: player.lat, lon: player.lon }])
+                    tiedGroups.set(player.distance, [{ name: player.name, score, rank: rank, lat: player.lat, lon: player.lon, distance: player.distance }])
                     rank += 1
                 }
             })
@@ -120,15 +120,20 @@
                     avgScore = Math.round(avgScore * 100) / 100
                     let rankNumber = group[0].rank
                     group.forEach(p => {
-                        let resultText = `${rankNumber}. ${p.name}*: ${avgScore.toFixed(2)} points`
+                        let km = p.distance.toFixed(2)
+                        let mi = (p.distance * 0.621371).toFixed(2)
+                        let resultText = `${rankNumber}. ${p.name}*: ${avgScore.toFixed(2)} points — ${km} km / ${mi} mi`
                         if (p.rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
                         results.push(resultText)
                     })
                     rank += group.length - 1
                 } else {
-                    let rankNumber = group[0].rank
-                    let resultText = `${rankNumber}. ${group[0].name}: ${group[0].score.toFixed(2)} points`
-                    if (group[0].rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
+                    let p = group[0]
+                    let km = p.distance.toFixed(2)
+                    let mi = (p.distance * 0.621371).toFixed(2)
+                    let rankNumber = p.rank
+                    let resultText = `${rankNumber}. ${p.name}: ${p.score.toFixed(2)} points — ${km} km / ${mi} mi`
+                    if (p.rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
                     results.push(resultText)
                 }
             })
