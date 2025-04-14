@@ -7,151 +7,153 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.3/leaflet.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.3/leaflet.css" />
     <style>
-        #map { height: 400px; width: 50%; margin-top: 20px; }
-        textarea { width: 50%; height: 200px; }
+        #map { height: 600px; width: 60%; margin-top: 20px; }
     </style>
 </head>
 <body>
     <h1>Travel Pics Game Scoring</h1>
     <label><input type="checkbox" id="toggleStates"> Include Alaska & Hawaii</label>
     <label><input type="checkbox" id="toggleWorld"> Score Based on Earth</label>
+    <label><input type="checkbox" id="toggleDistance"> Show Distance (Miles & Km)</label>
 
     <h3>Enter Target Coordinates:</h3>
     Latitude: <input type="number" id="targetLat" step="any">
     Longitude: <input type="number" id="targetLon" step="any">
 
     <h3>Enter Player Coordinates:</h3>
-    <textarea id="playerData" placeholder="Enter player data (lat, lon, name) per line"></textarea><br>
+    <textarea id="playerData" placeholder="Enter player data (lat, lon, name) per line" rows="10" cols="40"></textarea><br>
     <button onclick="calculateScores()">Calculate Scores</button>
     <button onclick="downloadCSV()">Download CSV</button>
 
     <h3>Results:</h3>
     <div id="results"></div>
+
     <div id="map"></div>
 
     <script>
-        let map = L.map('map').setView([20, 0], 2)
+        let map = L.map('map').setView([20, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(map)
-
-        let markersLayer = L.layerGroup().addTo(map)
-        let csvData = []
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        let markersLayer = L.layerGroup().addTo(map);
 
         function haversine(lat1, lon1, lat2, lon2) {
-            const R = 6371
-            const toRad = angle => angle * Math.PI / 180
-            const dLat = toRad(lat2 - lat1)
-            const dLon = toRad(lon2 - lon1)
-            const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-            return 2 * R * Math.asin(Math.sqrt(a))
+            const R = 6371;
+            const toRad = angle => angle * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a));
         }
 
-        function calculateScores() {
-            const targetLat = parseFloat(document.getElementById('targetLat').value)
-            const targetLon = parseFloat(document.getElementById('targetLon').value)
-            const toggleStates = document.getElementById('toggleStates').checked
-            const toggleWorld = document.getElementById('toggleWorld').checked
+        let submissionPoints = [];
 
-            let maxD, factor
+        function calculateScores() {
+            const targetLat = parseFloat(document.getElementById('targetLat').value);
+            const targetLon = parseFloat(document.getElementById('targetLon').value);
+            const toggleStates = document.getElementById('toggleStates').checked;
+            const toggleWorld = document.getElementById('toggleWorld').checked;
+            const showDistance = document.getElementById('toggleDistance').checked;
+
+            let maxD, factor;
             if (toggleWorld) {
-                maxD = 20000
-                factor = 0.25
+                maxD = 20000;
+                factor = 0.25;
             } else if (toggleStates) {
-                maxD = targetLat > 50 ? 8875 : 9429
-                factor = targetLat > 50 ? 0.5633802 : 0.5302789
+                maxD = targetLat > 50 ? 8875 : 9429;
+                factor = targetLat > 50 ? 0.5633802 : 0.5302789;
             } else {
-                maxD = 4669
-                factor = 1.070893
+                maxD = 4669;
+                factor = 1.070893;
             }
 
             let players = document.getElementById('playerData').value.trim().split('\n').map(line => {
-                const [lat, lon, name] = line.split(',').map(v => v.trim())
-                const distance = haversine(targetLat, targetLon, parseFloat(lat), parseFloat(lon))
-                return { name, distance, lat: parseFloat(lat), lon: parseFloat(lon) }
-            })
+                const [lat, lon, name] = line.split(',').map(v => v.trim());
+                return { name, lat: parseFloat(lat), lon: parseFloat(lon), distance: 0 };
+            });
 
-            players.sort((a, b) => a.distance - b.distance)
-            const totalPlayers = players.length
-            const topHalfThreshold = Math.ceil(totalPlayers / 1.99)
-            let results = []
-            let tiedGroups = new Map()
-            let rank = 1
+            players.forEach(p => {
+                p.distance = haversine(targetLat, targetLon, p.lat, p.lon);
+            });
 
-            markersLayer.clearLayers()
-            csvData = []
+            players.sort((a, b) => a.distance - b.distance);
+            const totalPlayers = players.length;
+            const topHalfThreshold = Math.ceil(totalPlayers / 1.99);
+            let results = [];
 
-            players.forEach((player, i) => {
-                L.marker([player.lat, player.lon]).addTo(markersLayer).bindPopup(player.name)
-                csvData.push({ lat: player.lat, lon: player.lon, name: player.name })
+            markersLayer.clearLayers();
+            submissionPoints = [];
 
-                if (player.distance <= 0.1) {
-                    if (!tiedGroups.has("5K")) tiedGroups.set("5K", [])
-                    tiedGroups.get("5K").push({ name: player.name, score: 15000, rank: rank, distance: player.distance })
-                    return
-                }
+            let unranked = [...players];
+            let tiedGroups = [];
 
-                let beaten = totalPlayers - (i + 1)
-                let score = factor * (maxD - player.distance) + 5000 * (beaten / (totalPlayers - 1))
-                score = Math.max(0, Math.round(score * 100) / 100)
-                if (i === 0) score += score > 5000 ? 5000 : 3000
-                if (i === 1) score += 2000
-                if (i === 2) score += 1000
-
-                let tied = false
-                for (let [key, group] of tiedGroups.entries()) {
-                    if (key !== "5K" && haversine(player.lat, player.lon, group[0].lat, group[0].lon) <= 0.1) {
-                        group.push({ name: player.name, score, rank: group[0].rank, distance: player.distance })
-                        tied = true
-                        break
+            while (unranked.length > 0) {
+                let base = unranked[0];
+                let group = [base];
+                for (let i = 1; i < unranked.length; i++) {
+                    let candidate = unranked[i];
+                    let allClose = group.every(p => haversine(p.lat, p.lon, candidate.lat, candidate.lon) <= 0.1);
+                    if (allClose && haversine(base.lat, base.lon, candidate.lat, candidate.lon) <= 0.1) {
+                        group.push(candidate);
                     }
                 }
+                group.forEach(g => unranked = unranked.filter(p => p !== g));
+                tiedGroups.push(group);
+            }
 
-                if (!tied) {
-                    tiedGroups.set(player.distance, [{ name: player.name, score, rank: rank, lat: player.lat, lon: player.lon, distance: player.distance }])
-                    rank += 1
-                }
-            })
+            let rank = 1;
 
-            tiedGroups.forEach((group, key) => {
+            tiedGroups.forEach((group, i) => {
+                let beaten = totalPlayers - rank;
+                group.forEach(player => {
+                    let score = factor * (maxD - player.distance) + 5000 * (beaten / (totalPlayers - 1));
+                    score = Math.max(0, Math.round(score * 100) / 100);
+                    if (rank === 1) score += score > 5000 ? 5000 : 3000;
+                    if (rank === 2) score += 2000;
+                    if (rank === 3) score += 1000;
+                    player.score = score;
+                    player.rank = rank;
+                });
+
                 if (group.length > 1) {
-                    let avgScore = group.reduce((sum, p) => sum + p.score, 0) / group.length
-                    avgScore = Math.round(avgScore * 100) / 100
-                    let rankNumber = group[0].rank
-                    group.forEach(p => {
-                        let km = p.distance.toFixed(2)
-                        let mi = (p.distance * 0.621371).toFixed(2)
-                        let resultText = `${rankNumber}. ${p.name}*: ${avgScore.toFixed(2)} points — ${km} km / ${mi} mi`
-                        if (p.rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
-                        results.push(resultText)
-                    })
-                    rank += group.length - 1
+                    let avgScore = Math.round(group.reduce((sum, p) => sum + p.score, 0) / group.length * 100) / 100;
+                    group.forEach(player => {
+                        let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : "";
+                        let resultText = `${rank}. ${player.name}*: ${avgScore} points${distanceText}`;
+                        if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`;
+                        results.push(resultText);
+                        markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name));
+                        submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon });
+                    });
                 } else {
-                    let p = group[0]
-                    let km = p.distance.toFixed(2)
-                    let mi = (p.distance * 0.621371).toFixed(2)
-                    let rankNumber = p.rank
-                    let resultText = `${rankNumber}. ${p.name}: ${p.score.toFixed(2)} points — ${km} km / ${mi} mi`
-                    if (p.rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
-                    results.push(resultText)
+                    let player = group[0];
+                    let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : "";
+                    let resultText = `${rank}. ${player.name}: ${player.score.toFixed(2)} points${distanceText}`;
+                    if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`;
+                    results.push(resultText);
+                    markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name));
+                    submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon });
                 }
-            })
 
-            document.getElementById('results').innerHTML = results.join('<br>')
-            if (players.length > 0) map.setView([players[0].lat, players[0].lon], 4)
+                rank += 1;
+            });
+
+            document.getElementById('results').innerHTML = results.join('<br>');
         }
 
         function downloadCSV() {
-            if (csvData.length === 0) return
-            let csvContent = 'data:text/csv;charset=utf-8,lat,lon,name\n' + csvData.map(row => `${row.lat},${row.lon},${row.name}`).join('\n')
-            let encodedUri = encodeURI(csvContent)
-            let link = document.createElement('a')
-            link.setAttribute('href', encodedUri)
-            link.setAttribute('download', 'submissions.csv')
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
+            let csv = 'Name,Latitude,Longitude\n';
+            submissionPoints.forEach(p => {
+                csv += `"${p.name}",${p.lat},${p.lon}\n`;
+            });
+            let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "submission_points.csv";
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
     </script>
 </body>
