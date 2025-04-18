@@ -109,17 +109,22 @@
             let tiedGroups = []
 
             while (unranked.length > 0) {
-                let base = unranked[0]
-                let group = [base]
-                for (let i = 1; i < unranked.length; i++) {
-                    let candidate = unranked[i]
-                    let allClose = group.every(p => Math.abs(p.distance - candidate.distance) <= 0.1)
-                    if (allClose && Math.abs(base.distance - candidate.distance) <= 0.1) {
-                        group.push(candidate)
+                let base = unranked[0];
+                let group = [base];
+                unranked = unranked.slice(1);
+                let i = 0;
+                while (i < unranked.length) {
+                    let candidate = unranked[i];
+                    let fitsGroup = group.every(p => haversine(p.lat, p.lon, candidate.lat, candidate.lon) <= 0.1);
+                    if (fitsGroup) {
+                        group.push(candidate);
+                        unranked.splice(i, 1);
+                        i = 0; // Start over since group has changed
+                    } else {
+                        i++;
                     }
                 }
-                group.forEach(g => unranked = unranked.filter(p => p !== g))
-                tiedGroups.push(group)
+                tiedGroups.push(group);
             }
 
             let rank = 1
