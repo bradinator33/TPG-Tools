@@ -11,6 +11,64 @@
         let currentPin = null;
         let selectedRegion = null;
 
+        const stateBoundaries = {
+            "Alabama": { minLat: 30.223334, maxLat: 35.008028, minLon: -88.473227, maxLon: -84.88908 },
+            "Alaska": { minLat: 51.214183, maxLat: 71.365162, minLon: -179.148909, maxLon: 179.77847 },
+            "Arizona": { minLat: 31.332177, maxLat: 37.00426, minLon: -114.81651, maxLon: -109.045223 },
+            "Arkansas": { minLat: 33.004106, maxLat: 36.4996, minLon: -94.617919, maxLon: -89.644395 },
+            "California": { minLat: 32.534156, maxLat: 42.009518, minLon: -124.409591, maxLon: -114.131211 },
+            "Colorado": { minLat: 36.992426, maxLat: 41.003444, minLon: -109.060253, maxLon: -102.041524 },
+            "Connecticut": { minLat: 40.950943, maxLat: 42.050587, minLon: -73.727775, maxLon: -71.786994 },
+            "Delaware": { minLat: 38.451013, maxLat: 39.839007, minLon: -75.789, maxLon: -75.048939 },
+            "Florida": { minLat: 24.396308, maxLat: 31.000968, minLon: -87.634938, maxLon: -80.031362 },
+            "Georgia": { minLat: 30.357851, maxLat: 35.000659, minLon: -85.605165, maxLon: -80.839729 },
+            "Hawaii": { minLat: 18.910361, maxLat: 28.402123, minLon: -178.334698, maxLon: -154.806773 },
+            "Idaho": { minLat: 41.988057, maxLat: 49.000574, minLon: -117.243027, maxLon: -111.043564 },
+            "Illinois": { minLat: 36.970298, maxLat: 42.508481, minLon: -91.513079, maxLon: -87.019935 },
+            "Indiana": { minLat: 37.771742, maxLat: 41.760592, minLon: -88.09776, maxLon: -84.784579 },
+            "Iowa": { minLat: 40.375501, maxLat: 43.501196, minLon: -96.639485, maxLon: -90.140061 },
+            "Kansas": { minLat: 36.993016, maxLat: 40.003162, minLon: -102.051744, maxLon: -94.588413 },
+            "Kentucky": { minLat: 36.497129, maxLat: 39.147458, minLon: -89.571509, maxLon: -81.964971 },
+            "Louisiana": { minLat: 28.928609, maxLat: 33.019457, minLon: -94.043147, maxLon: -88.817017 },
+            "Maine": { minLat: 42.977764, maxLat: 47.459686, minLon: -71.083924, maxLon: -66.949895 },
+            "Maryland": { minLat: 37.911717, maxLat: 39.723043, minLon: -79.487651, maxLon: -75.048939 },
+            "Massachusetts": { minLat: 41.237964, maxLat: 42.886589, minLon: -73.508142, maxLon: -69.928393 },
+            "Michigan": { minLat: 41.696118, maxLat: 48.2388, minLon: -90.418136, maxLon: -82.122902 },
+            "Minnesota": { minLat: 43.499356, maxLat: 49.384358, minLon: -97.239209, maxLon: -89.491739 },
+            "Mississippi": { minLat: 30.173943, maxLat: 34.996052, minLon: -91.655009, maxLon: -88.097888 },
+            "Missouri": { minLat: 35.995683, maxLat: 40.61364, minLon: -95.774704, maxLon: -89.098843 },
+            "Montana": { minLat: 44.358221, maxLat: 49.00139, minLon: -116.050003, maxLon: -104.039138 },
+            "Nebraska": { minLat: 39.999998, maxLat: 43.001708, minLon: -104.053514, maxLon: -95.30829 },
+            "Nevada": { minLat: 35.001857, maxLat: 42.002207, minLon: -120.005746, maxLon: -114.039648 },
+            "New Hampshire": { minLat: 42.697041, maxLat: 45.305476, minLon: -72.557247, maxLon: -70.610621 },
+            "New Jersey": { minLat: 38.788656, maxLat: 41.357423, minLon: -75.559614, maxLon: -73.893979 },
+            "New Mexico": { minLat: 31.332301, maxLat: 37.000263, minLon: -109.050173, maxLon: -103.001964 },
+            "New York": { minLat: 40.496103, maxLat: 45.01585, minLon: -79.762152, maxLon: -71.856214 },
+            "North Carolina": { minLat: 33.842316, maxLat: 36.588117, minLon: -84.321869, maxLon: -75.460621 },
+            "North Dakota": { minLat: 45.935054, maxLat: 49.000574, minLon: -104.0489, maxLon: -96.554507 },
+            "Ohio": { minLat: 38.403202, maxLat: 41.977523, minLon: -84.820159, maxLon: -80.518693 },
+            "Oklahoma": { minLat: 33.615833, maxLat: 37.002206, minLon: -103.002565, maxLon: -94.431089 },
+            "Oregon": { minLat: 41.991794, maxLat: 46.292035, minLon: -124.566244, maxLon: -116.463262 },
+            "Pennsylvania": { minLat: 39.7198, maxLat: 42.516072, minLon: -80.519891, maxLon: -74.689516 },
+            "Rhode Island": { minLat: 41.146339, maxLat: 42.018798, minLon: -71.862772, maxLon: -71.12057 },
+            "South Carolina": { minLat: 32.033455, maxLat: 35.215402, minLon: -83.35391, maxLon: -78.54203 },
+            "South Dakota": { minLat: 42.479635, maxLat: 45.94545, minLon: -104.057698, maxLon: -96.436589 },
+            "Tennessee": { minLat: 34.982972, maxLat: 36.678118, minLon: -90.310298, maxLon: -81.6469 },
+            "Texas": { minLat: 25.837377, maxLat: 36.500704, minLon: -106.645646, maxLon: -93.508292 },
+            "Utah": { minLat: 36.997968, maxLat: 42.001567, minLon: -114.052962, maxLon: -109.041058 },
+            "Vermont": { minLat: 42.726853, maxLat: 45.016659, minLon: -73.43774, maxLon: -71.464555 },
+            "Virginia": { minLat: 36.540738, maxLat: 39.466012, minLon: -83.675395, maxLon: -75.231222 },
+            "Washington": { minLat: 45.543541, maxLat: 49.002494, minLon: -124.848974, maxLon: -116.916528 },
+            "West Virginia": { minLat: 37.201483, maxLat: 40.638801, minLon: -82.644739, maxLon: -77.719519 },
+            "Wisconsin": { minLat: 42.491983, maxLat: 47.302488, minLon: -92.888114, maxLon: -86.805415 },
+            "Wyoming": { minLat: 40.994746, maxLat: 45.005904, minLon: -111.056888, maxLon: -104.05216 },
+            "American Samoa": { minLat: -14.382, maxLat: -14.167, minLon: -170.86, maxLon: -170.56 },
+            "Guam": { minLat: 13.234, maxLat: 13.654, minLon: 144.619, maxLon: 144.953 },
+            "Northern Mariana Islands": { minLat: 14.88, maxLat: 20.52, minLon: 144.89, maxLon: 146.07 },
+            "Puerto Rico": { minLat: 17.93, maxLat: 18.53, minLon: -67.27, maxLon: -65.59 },
+            "U.S. Virgin Islands": { minLat: 17.623, maxLat: 18.464, minLon: -65.123, maxLon: -64.512 },
+        };
+
         function initMap() {
             map = L.map('map').setView([37.8, -96], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
@@ -58,7 +116,6 @@
             const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
             const response = await fetch(url);
             const data = await response.json();
-            
             if (data && data.address && data.address.country === "United States" && !data.address.water) {
                 return {
                     valid: true,
@@ -70,15 +127,29 @@
         }
 
         async function generateRandomUSLocation() {
-            selectedRegion = getRandomRegion();
+            const selectedState = document.getElementById("stateSelector").value;
+            let region;
+
+            if (!selectedState) {
+                region = getRandomRegion();
+            } else {
+                region = stateBoundaries[selectedState];
+                if (!region) {
+                    alert("State boundaries not set for this state.");
+                    return;
+                }
+            }
+
             let validLocation = false;
             let coord;
             let locationData;
-            while (!validLocation || locationData.county === "Unknown") {
-                coord = getRandomCoordinate(selectedRegion);
+
+            while (!validLocation || locationData.county === "Unknown" || (selectedState && locationData.state !== selectedState)) {
+                coord = getRandomCoordinate(region);
                 locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
                 validLocation = locationData.valid;
             }
+
             document.getElementById("output").innerText = `${coord.lat}, ${coord.lon}\n${locationData.county}, ${locationData.state}`;
             const location = L.latLng(coord.lat, coord.lon);
             map.setView(location, 6);
@@ -94,6 +165,65 @@
 <body onload="initMap()">
     <h1>Random US Coordinates Generator</h1>
     <h3>If it is running slow, it's because it is running checks for if the location is valid</h3>
+    <label for="stateSelector">Select State (optional): </label>
+    <select id="stateSelector">
+        <option value="">-- Select a State (Entire US by default)--</option>
+        <option value="Alabama">Alabama</option>
+        <option value="Alaska">Alaska</option>
+        <option value="Arizona">Arizona</option>
+        <option value="Arkansas">Arkansas</option>
+        <option value="California">California</option>
+        <option value="Colorado">Colorado</option>
+        <option value="Connecticut">Connecticut</option>
+        <option value="Delaware">Delaware</option>
+        <option value="Florida">Florida</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Hawaii">Hawaii</option>
+        <option value="Idaho">Idaho</option>
+        <option value="Illinois">Illinois</option>
+        <option value="Indiana">Indiana</option>
+        <option value="Iowa">Iowa</option>
+        <option value="Kansas">Kansas</option>
+        <option value="Kentucky">Kentucky</option>
+        <option value="Louisiana">Louisiana</option>
+        <option value="Maine">Maine</option>
+        <option value="Maryland">Maryland</option>
+        <option value="Massachusetts">Massachusetts</option>
+        <option value="Michigan">Michigan</option>
+        <option value="Minnesota">Minnesota</option>
+        <option value="Mississippi">Mississippi</option>
+        <option value="Missouri">Missouri</option>
+        <option value="Montana">Montana</option>
+        <option value="Nebraska">Nebraska</option>
+        <option value="Nevada">Nevada</option>
+        <option value="New Hampshire">New Hampshire</option>
+        <option value="New Jersey">New Jersey</option>
+        <option value="New Mexico">New Mexico</option>
+        <option value="New York">New York</option>
+        <option value="North Carolina">North Carolina</option>
+        <option value="North Dakota">North Dakota</option>
+        <option value="Ohio">Ohio</option>
+        <option value="Oklahoma">Oklahoma</option>
+        <option value="Oregon">Oregon</option>
+        <option value="Pennsylvania">Pennsylvania</option>
+        <option value="Rhode Island">Rhode Island</option>
+        <option value="South Carolina">South Carolina</option>
+        <option value="South Dakota">South Dakota</option>
+        <option value="Tennessee">Tennessee</option>
+        <option value="Texas">Texas</option>
+        <option value="Utah">Utah</option>
+        <option value="Vermont">Vermont</option>
+        <option value="Virginia">Virginia</option>
+        <option value="Washington">Washington</option>
+        <option value="West Virginia">West Virginia</option>
+        <option value="Wisconsin">Wisconsin</option>
+        <option value="Wyoming">Wyoming</option>
+        <option value="American Samoa">American Samoa</option>
+        <option value="Guam">Guam</option>
+        <option value="Northern Mariana Islands">Northern Mariana Islands</option>
+        <option value="Puerto Rico">Puerto Rico</option>
+        <option value="U.S. Virgin Islands">U.S. Virgin Islands</option>
+    </select>
     <button onclick="generateRandomUSLocation()">Generate Random Location</button>
     <p id="output">Click the button to generate coordinates.</p>
     <div id="map" style="width: 100%; height: 700px;"></div>
