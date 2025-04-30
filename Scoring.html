@@ -128,7 +128,7 @@
                 group.forEach(player => {
                     let score = factor * (maxD - player.distance) + 5000 * (beaten / (totalPlayers - 1))
                     score = Math.max(0, Math.round(score * 100) / 100)
-                    if (rank === 1) score += score > 5000 ? 5000 : 3000
+                    if (rank === 1) score += player.distance <= 0.01 ? 5000 : 3000
                     if (rank === 2) score += 2000
                     if (rank === 3) score += 1000
                     player.score = score
