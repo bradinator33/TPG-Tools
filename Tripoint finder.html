@@ -21,7 +21,6 @@
             opacity: 1;
             transform: translateY(0);
         }
-        /* Styles for active and inactive tabs */
         .tab {
             cursor: pointer;
             transition: all 0.2s ease-in-out;
@@ -31,7 +30,6 @@
             color: #4f46e5;
             font-weight: 600;
         }
-        /* Ensure map has a height */
         #map {
             height: 500px;
             border-radius: 0.5rem;
@@ -215,12 +213,6 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
         
-        /**
-         * Calculates the geographic midpoint (centroid) of several lat/lon points.
-         * This method is more accurate than simple averaging as it accounts for the Earth's curvature.
-         * @param {Array<{lat: number, lon: number}>} points - An array of points.
-         * @returns {{lat: number, lon: number}} The geographic midpoint.
-         */
         function calculateGeographicMidpoint(...points) {
             if (points.length === 0) return null;
             if (points.length === 1) return points[0];
@@ -398,7 +390,25 @@
         let map = null;
         let markers = [];
         let targetMarker = null;
-        let lockedPointIndex = -1; // -1 means no point is locked
+        let lockedPointIndex = -1;
+        let initialDragPositions = []; // To store positions at the start of a drag
+
+        // Helper functions for Cartesian conversion
+        function latLngToXyz(latLng) {
+            const latRad = latLng.lat * Math.PI / 180;
+            const lonRad = latLng.lng * Math.PI / 180;
+            const x = Math.cos(latRad) * Math.cos(lonRad);
+            const y = Math.cos(latRad) * Math.sin(lonRad);
+            const z = Math.sin(latRad);
+            return { x, y, z };
+        }
+
+        function xyzToLatLng(xyz) {
+            const centralLon = Math.atan2(xyz.y, xyz.x);
+            const centralHyp = Math.sqrt(xyz.x * xyz.x + xyz.y * xyz.y);
+            const centralLat = Math.atan2(xyz.z, centralHyp);
+            return L.latLng(centralLat * 180 / Math.PI, centralLon * 180 / Math.PI);
+        }
 
         function createIcon(color) {
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="${color}" stroke="black" stroke-width="1"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
@@ -407,7 +417,7 @@
         
         function initMap() {
             if (map) return;
-            map = L.map('map');
+            map = L.map('map', { worldCopyJump: true });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
             updateMapAndMarkers();
         }
@@ -419,7 +429,7 @@
             markers.forEach(m => map.removeLayer(m));
             markers = [];
             if(targetMarker) map.removeLayer(targetMarker);
-            lockedPointIndex = -1; // Reset lock on update
+            lockedPointIndex = -1;
 
             const targetLatLng = L.latLng(target.lat, target.lon);
             map.setView(targetLatLng, 10);
@@ -433,45 +443,87 @@
             initialPoints.forEach((point, index) => {
                 const marker = L.marker(point, { draggable: true, icon: createIcon(colors[index]) }).addTo(map);
                 marker.pointId = index;
+                marker.on('dragstart', onMarkerDragStart); // ADDED: Listener for drag start
                 marker.on('drag', onMarkerDrag);
                 markers.push(marker);
             });
             updateCoordsDisplay();
             updateLockIcons();
         }
-        
-        function onMarkerDrag(e) {
-            const draggedMarkerIndex = e.target.pointId;
-            const P_new_dragged = e.target.getLatLng();
-            const T = targetMarker.getLatLng();
-            const T3 = L.latLng(T.lat * 3, T.lng * 3);
 
+        // ADDED: Handler to store positions when a drag begins
+        function onMarkerDragStart(e) {
             if (lockedPointIndex === -1) {
-                // CASE 0: No points locked
-                const otherMarkers = markers.filter(m => m.pointId !== draggedMarkerIndex);
-                const Pj = otherMarkers[0].getLatLng();
-                const Pk = otherMarkers[1].getLatLng();
-                
-                const Pj_new_lat = (T3.lat - P_new_dragged.lat - Pk.lat + Pj.lat) / 2;
-                const Pj_new_lng = (T3.lng - P_new_dragged.lng - Pk.lng + Pj.lng) / 2;
-                
-                const Pk_new_lat = (T3.lat - P_new_dragged.lat + Pk.lat - Pj.lat) / 2;
-                const Pk_new_lng = (T3.lng - P_new_dragged.lng + Pk.lng - Pj.lng) / 2;
-
-                otherMarkers[0].setLatLng(L.latLng(Pj_new_lat, Pj_new_lng));
-                otherMarkers[1].setLatLng(L.latLng(Pk_new_lat, Pk_new_lng));
-            } else {
-                // CASE 1: One point is locked
-                const followerMarker = markers.find(m => m.pointId !== draggedMarkerIndex && m.pointId !== lockedPointIndex);
-                const lockedMarker = markers.find(m => m.pointId === lockedPointIndex);
-                const P_locked = lockedMarker.getLatLng();
-
-                // P_follower = 3T - P_dragged - P_locked
-                const P_new_follower_lat = T3.lat - P_new_dragged.lat - P_locked.lat;
-                const P_new_follower_lng = T3.lng - P_new_dragged.lng - P_locked.lng;
-
-                followerMarker.setLatLng(L.latLng(P_new_follower_lat, P_new_follower_lng));
+                 initialDragPositions = markers.map(m => m.getLatLng());
             }
+        }
+        
+        // REVISED: Logic to handle both locked and unlocked dragging
+        function onMarkerDrag(e) {
+            const draggedMarker = e.target;
+            
+            if (lockedPointIndex === -1) {
+                // CASE 0: No points locked. Dragging one moves the other two symmetrically.
+                const draggedMarkerIndex = draggedMarker.pointId;
+
+                const P_dragged_initial_latlng = initialDragPositions[draggedMarkerIndex];
+                const followerInitialPositions = initialDragPositions.filter((_, index) => index !== draggedMarkerIndex);
+                
+                const followerMarkers = markers.filter(m => m.pointId !== draggedMarkerIndex);
+
+                const P_dragged_initial_xyz = latLngToXyz(P_dragged_initial_latlng);
+                const P_follower1_initial_xyz = latLngToXyz(followerInitialPositions[0]);
+                const P_follower2_initial_xyz = latLngToXyz(followerInitialPositions[1]);
+                const P_dragged_current_xyz = latLngToXyz(draggedMarker.getLatLng());
+                
+                const delta_xyz = {
+                    x: P_dragged_current_xyz.x - P_dragged_initial_xyz.x,
+                    y: P_dragged_current_xyz.y - P_dragged_initial_xyz.y,
+                    z: P_dragged_current_xyz.z - P_dragged_initial_xyz.z,
+                };
+
+                const P_follower1_new_xyz = {
+                    x: P_follower1_initial_xyz.x - delta_xyz.x / 2,
+                    y: P_follower1_initial_xyz.y - delta_xyz.y / 2,
+                    z: P_follower1_initial_xyz.z - delta_xyz.z / 2,
+                };
+                const P_follower2_new_xyz = {
+                    x: P_follower2_initial_xyz.x - delta_xyz.x / 2,
+                    y: P_follower2_initial_xyz.y - delta_xyz.y / 2,
+                    z: P_follower2_initial_xyz.z - delta_xyz.z / 2,
+                };
+
+                [P_follower1_new_xyz, P_follower2_new_xyz].forEach(xyz => {
+                    const mag = Math.sqrt(xyz.x**2 + xyz.y**2 + xyz.z**2);
+                    xyz.x /= mag; xyz.y /= mag; xyz.z /= mag;
+                });
+                
+                followerMarkers[0].setLatLng(xyzToLatLng(P_follower1_new_xyz).wrap());
+                followerMarkers[1].setLatLng(xyzToLatLng(P_follower2_new_xyz).wrap());
+                
+            } else if (lockedPointIndex !== draggedMarker.pointId) {
+                // CASE 1: One point is locked, and we are dragging a different, unlocked point.
+                const T_latlng = targetMarker.getLatLng();
+                const followerMarker = markers.find(m => m.pointId !== draggedMarker.pointId && m.pointId !== lockedPointIndex);
+                const lockedMarker = markers.find(m => m.pointId === lockedPointIndex);
+                
+                const T_xyz = latLngToXyz(T_latlng);
+                const P_dragged_xyz = latLngToXyz(draggedMarker.getLatLng());
+                const P_locked_xyz = latLngToXyz(lockedMarker.getLatLng());
+
+                const P_follower_xyz = {
+                    x: 3 * T_xyz.x - P_dragged_xyz.x - P_locked_xyz.x,
+                    y: 3 * T_xyz.y - P_dragged_xyz.y - P_locked_xyz.y,
+                    z: 3 * T_xyz.z - P_dragged_xyz.z - P_locked_xyz.z
+                };
+                
+                const mag = Math.sqrt(P_follower_xyz.x**2 + P_follower_xyz.y**2 + P_follower_xyz.z**2);
+                P_follower_xyz.x /= mag; P_follower_xyz.y /= mag; P_follower_xyz.z /= mag;
+
+                const P_new_follower_latlng = xyzToLatLng(P_follower_xyz);
+                followerMarker.setLatLng(P_new_follower_latlng.wrap());
+            }
+            
             updateCoordsDisplay();
         }
 
@@ -494,20 +546,25 @@
                 }
             });
         }
-
+        
         function updateCoordsDisplay() {
             markers.sort((a, b) => a.pointId - b.pointId);
             markers.forEach((marker, index) => {
-                const pos = marker.getLatLng();
+                const pos = marker.getLatLng().wrap();
                 document.getElementById(`point${index + 1}-coords`).textContent = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;
             });
             
-            const p1 = markers[0].getLatLng();
-            const p2 = markers[1].getLatLng();
-            const p3 = markers[2].getLatLng();
-            const tripointLat = (p1.lat + p2.lat + p3.lat) / 3;
-            const tripointLng = (p1.lng + p2.lng + p3.lng) / 3;
-            document.getElementById('tripoint-coords').textContent = `${tripointLat.toFixed(6)}, ${tripointLng.toFixed(6)}`;
+            const p1_ll = markers[0].getLatLng().wrap();
+            const p2_ll = markers[1].getLatLng().wrap();
+            const p3_ll = markers[2].getLatLng().wrap();
+
+            const tripoint = calculateGeographicMidpoint(
+                { lat: p1_ll.lat, lon: p1_ll.lng },
+                { lat: p2_ll.lat, lon: p2_ll.lng },
+                { lat: p3_ll.lat, lon: p3_ll.lng }
+            );
+            
+            document.getElementById('tripoint-coords').textContent = `${tripoint.lat.toFixed(6)}, ${tripoint.lon.toFixed(6)}`;
         }
 
         updateMapBtn.addEventListener('click', updateMapAndMarkers);
@@ -592,7 +649,6 @@
                     tab.classList.add('text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
                 }
             });
-            // Special handler for map initialization
             if (activeIndex === 1) {
                 initMap();
             }
