@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tripoint Tools</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .result-card {
+            transition: all 0.3s ease-in-out;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        .result-card.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        /* Styles for active and inactive tabs */
+        .tab {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .tab-active {
+            border-color: #4f46e5; /* indigo-600 */
+            color: #4f46e5;
+            font-weight: 600;
+        }
+        /* Ensure map has a height */
+        #map {
+            height: 500px;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb; /* gray-200 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl mx-auto bg-white rounded-2xl shadow-lg p-6 md:p-10 space-y-6">
+        
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                <button id="tab1" class="tab tab-active whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
+                    Closest Tripoint Finder
+                </button>
+                <button id="tab2" class="tab text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
+                    Interactive Tripoint Solver
+                </button>
+            </nav>
+        </div>
+
+        <div id="page1" class="space-y-8">
+            <div class="text-center">
+                <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Closest Tripoint Finder</h1>
+                <p class="mt-2 text-gray-600">Upload three CSVs, provide a target, and find the closest tripoint from points that are at least 10 miles apart.</p>
+                <p class="mt-1 text-sm text-gray-500">Note: CSVs should contain latitude and longitude in the first two columns, without headers.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="space-y-4">
+                    <h2 class="text-xl font-semibold text-gray-700 border-b pb-2">1. Upload Coordinate Files</h2>
+                    <div>
+                        <label for="csv1" class="block text-sm font-medium text-gray-700 mb-1">Source File 1</label>
+                        <input type="file" id="csv1" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+                    <div>
+                        <label for="csv2" class="block text-sm font-medium text-gray-700 mb-1">Source File 2</label>
+                        <input type="file" id="csv2" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+                    </div>
+                    <div>
+                        <label for="csv3" class="block text-sm font-medium text-gray-700 mb-1">Source File 3</label>
+                        <input type="file" id="csv3" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100">
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <h2 class="text-xl font-semibold text-gray-700 border-b pb-2">2. Set Target Coordinate</h2>
+                    <div>
+                        <label for="targetCoords" class="block text-sm font-medium text-gray-700">Target Coordinates (lat, lon)</label>
+                        <input type="text" id="targetCoords" placeholder="e.g., 40.7128, -74.0060" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center pt-4">
+                <button id="calculateBtn" class="w-full md:w-1/2 bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-transform transform hover:scale-105">
+                    Find Closest Tripoint
+                </button>
+            </div>
+
+            <div id="resultContainer" class="pt-6">
+                <div id="status" class="text-center text-gray-600 font-medium"></div>
+            </div>
+        </div>
+
+        <div id="page2" class="hidden space-y-6">
+             <div class="text-center">
+                <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Interactive Tripoint Solver</h1>
+                <p class="mt-2 text-gray-600">Set a target tripoint, then drag any of the three source points on the map. The other two will adjust automatically.</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div>
+                    <label for="mapTargetCoords" class="block text-sm font-medium text-gray-700">Target Tripoint (lat, lon)</label>
+                    <input type="text" id="mapTargetCoords" value="44.425612, -100.461359" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="text-right">
+                    <button id="updateMapBtn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Update Target & Center Map
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2">
+                    <div id="map"></div>
+                </div>
+                <div class="space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-800 border-b pb-2">Source Point Coordinates</h3>
+                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                        <p class="font-semibold text-blue-800">Point 1</p>
+                        <p id="point1-coords" class="text-sm text-blue-700 font-mono">0, 0</p>
+                    </div>
+                     <div class="bg-green-50 p-3 rounded-lg border border-green-200">
+                        <p class="font-semibold text-green-800">Point 2</p>
+                        <p id="point2-coords" class="text-sm text-green-700 font-mono">0, 0</p>
+                    </div>
+                     <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                        <p class="font-semibold text-yellow-800">Point 3</p>
+                        <p id="point3-coords" class="text-sm text-yellow-700 font-mono">0, 0</p>
+                    </div>
+                     <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200 mt-4">
+                        <p class="font-semibold text-indigo-800">Calculated Tripoint (Centroid)</p>
+                        <p id="tripoint-coords" class="text-sm text-indigo-700 font-mono">0, 0</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Page 1 (Closest Tripoint Finder) Script ---
+        const csv1Input = document.getElementById('csv1');
+        const csv2Input = document.getElementById('csv2');
+        const csv3Input = document.getElementById('csv3');
+        const targetCoordsInput = document.getElementById('targetCoords');
+        const calculateBtn = document.getElementById('calculateBtn');
+        const resultContainer = document.getElementById('resultContainer');
+        const statusDiv = document.getElementById('status');
+
+        function parseCSV(csvText) {
+            return csvText.split('\n').map(row => {
+                if (!row.trim()) return null;
+                const [lat, lon] = row.split(',').map(parseFloat);
+                return !isNaN(lat) && !isNaN(lon) ? { lat, lon } : null;
+            }).filter(Boolean);
+        }
+
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = event => resolve(event.target.result);
+                reader.onerror = error => reject(error);
+                reader.readAsText(file);
+            });
+        }
+
+        function haversineDistance(p1, p2) {
+            const R = 3958.8; // Earth's radius in miles
+            const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+            const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        async function findClosestTripoint() {
+            statusDiv.textContent = 'Processing... Please wait.';
+            statusDiv.classList.remove('text-red-600');
+            resultContainer.innerHTML = '';
+            resultContainer.appendChild(statusDiv);
+            calculateBtn.disabled = true;
+            calculateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            try {
+                if (!csv1Input.files[0] || !csv2Input.files[0] || !csv3Input.files[0]) {
+                    throw new Error('Please upload all three CSV files.');
+                }
+                const coordParts = targetCoordsInput.value.split(',');
+                if (coordParts.length !== 2) throw new Error('Invalid target format.');
+                const target = { lat: parseFloat(coordParts[0]), lon: parseFloat(coordParts[1]) };
+                if (isNaN(target.lat) || isNaN(target.lon)) throw new Error('Invalid target coordinates.');
+                
+                statusDiv.textContent = 'Reading and parsing files...';
+                const [coords1, coords2, coords3] = await Promise.all([
+                    readFileAsText(csv1Input.files[0]).then(parseCSV),
+                    readFileAsText(csv2Input.files[0]).then(parseCSV),
+                    readFileAsText(csv3Input.files[0]).then(parseCSV)
+                ]);
+
+                if (coords1.length === 0 || coords2.length === 0 || coords3.length === 0) {
+                    throw new Error('One or more CSV files are empty or invalid.');
+                }
+                
+                statusDiv.textContent = `Calculating from ${coords1.length} x ${coords2.length} x ${coords3.length} combinations...`;
+                
+                let minDistance = Infinity;
+                let closestTripoint = null;
+                let bestSourcePoints = null;
+
+                // This can be slow. A brief timeout allows the UI to update before the heavy loop.
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                for (const p1 of coords1) {
+                    for (const p2 of coords2) {
+                        if (haversineDistance(p1, p2) < 10) continue;
+                        for (const p3 of coords3) {
+                            if (haversineDistance(p1, p3) < 10 || haversineDistance(p2, p3) < 10) continue;
+                            const tripoint = { lat: (p1.lat + p2.lat + p3.lat) / 3, lon: (p1.lon + p2.lon + p3.lon) / 3 };
+                            const distance = haversineDistance(tripoint, target);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                closestTripoint = tripoint;
+                                bestSourcePoints = { p1, p2, p3 };
+                            }
+                        }
+                    }
+                }
+
+                if (!closestTripoint) {
+                    throw new Error("Could not find a valid combination satisfying the 10-mile distance constraint.");
+                }
+
+                displayResult(closestTripoint, bestSourcePoints, target, minDistance);
+
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                statusDiv.classList.add('text-red-600');
+            } finally {
+                calculateBtn.disabled = false;
+                calculateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                if (resultContainer.children.length > 1) statusDiv.textContent = '';
+            }
+        }
+
+        function displayResult(tripoint, sourcePoints, target, distance) {
+            const resultHTML = `
+                <div class="result-card bg-gray-50 rounded-lg p-6 shadow-md border border-gray-200">
+                    <h3 class="text-2xl font-bold text-indigo-600 mb-4">Closest Tripoint Found</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white p-4 rounded-lg border">
+                            <h4 class="font-semibold text-lg text-gray-800">Resulting Tripoint</h4>
+                            <p class="text-gray-600">Lat: <span class="font-mono text-gray-900">${tripoint.lat.toFixed(6)}</span></p>
+                            <p class="text-gray-600">Lon: <span class="font-mono text-gray-900">${tripoint.lon.toFixed(6)}</span></p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg border">
+                            <h4 class="font-semibold text-lg text-gray-800">Distance to Target</h4>
+                            <p class="text-gray-600">Distance: <span class="font-bold text-indigo-700">${distance.toFixed(2)} miles</span></p>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <h4 class="font-semibold text-lg text-gray-800 mb-3">Source Points</h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                            <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                <p class="font-semibold text-blue-800">From File 1</p>
+                                <p class="text-sm text-blue-700 font-mono">${sourcePoints.p1.lat.toFixed(6)}, ${sourcePoints.p1.lon.toFixed(6)}</p>
+                            </div>
+                            <div class="bg-green-50 p-3 rounded-lg border border-green-200">
+                                <p class="font-semibold text-green-800">From File 2</p>
+                                <p class="text-sm text-green-700 font-mono">${sourcePoints.p2.lat.toFixed(6)}, ${sourcePoints.p2.lon.toFixed(6)}</p>
+                            </div>
+                            <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                                <p class="font-semibold text-yellow-800">From File 3</p>
+                                <p class="text-sm text-yellow-700 font-mono">${sourcePoints.p3.lat.toFixed(6)}, ${sourcePoints.p3.lon.toFixed(6)}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            resultContainer.innerHTML = resultHTML;
+            setTimeout(() => document.querySelector('.result-card')?.classList.add('visible'), 50);
+        }
+
+        calculateBtn.addEventListener('click', findClosestTripoint);
+
+        // --- Page 2 (Interactive Map) Script ---
+        const mapTargetCoordsInput = document.getElementById('mapTargetCoords');
+        const updateMapBtn = document.getElementById('updateMapBtn');
+        let map = null;
+        let markers = [];
+        let targetMarker = null;
+
+        // Colors match the file inputs from page 1
+        const iconColors = {
+            p1: 'blue',
+            p2: 'green',
+            p3: 'yellow'
+        };
+
+        function createIcon(color) {
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="${color}" stroke="black" stroke-width="1"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
+            return L.icon({
+                iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32]
+            });
+        }
+        
+        function initMap() {
+            if (map) return; // Initialize only once
+
+            map = L.map('map').setView([44.425612, -100.461359], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            
+            // Initialize markers and target
+            updateMapAndMarkers();
+        }
+        
+        function updateMapAndMarkers() {
+            const coordParts = mapTargetCoordsInput.value.split(',');
+            if (coordParts.length !== 2) { alert('Invalid target format.'); return; }
+            const lat = parseFloat(coordParts[0]);
+            const lon = parseFloat(coordParts[1]);
+            if (isNaN(lat) || isNaN(lon)) { alert('Invalid coordinates.'); return; }
+            
+            const target = L.latLng(lat, lon);
+            
+            // Clear existing markers
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            if(targetMarker) map.removeLayer(targetMarker);
+
+            // Center map on the new target
+            map.setView(target, 10);
+            
+            // Create a non-draggable target marker (a star)
+            const starSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="30" height="30" fill="gold" stroke="black" stroke-width="1"><path d="m12 17.27 4.15 2.51c.76.46 1.69-.22 1.49-1.08l-1.1-4.72 3.67-3.18c.67-.58.31-1.68-.57-1.75l-4.83-.41-1.89-4.46c-.34-.81-1.5-.81-1.84 0L9.19 8.63l-4.83.41c-.88.07-1.24 1.17-.57 1.75l3.67 3.18-1.1 4.72c-.2.86.73 1.54 1.49 1.08L12 17.27z"/></svg>';
+            targetMarker = L.marker(target, { 
+                icon: L.icon({ iconUrl: `data:image/svg+xml;base64,${btoa(starSvg)}`, iconSize: [30, 30], iconAnchor: [15, 15] })
+            }).addTo(map);
+
+            // Initial positions for draggable points around the target
+            const p1 = L.latLng(target.lat + 0.1, target.lng - 0.1);
+            const p2 = L.latLng(target.lat - 0.05, target.lng + 0.15);
+            const p3 = L.latLng(target.lat - 0.05, target.lng - 0.05);
+
+            const initialPoints = {p1, p2, p3};
+
+            Object.keys(initialPoints).forEach((key, index) => {
+                const marker = L.marker(initialPoints[key], { 
+                    draggable: true, 
+                    icon: createIcon(iconColors[key]) 
+                }).addTo(map);
+
+                marker.pointId = index; // 0, 1, or 2
+                marker.on('drag', onMarkerDrag);
+                markers.push(marker);
+            });
+            updateCoordsDisplay();
+        }
+
+        function onMarkerDrag(e) {
+            const draggedMarkerIndex = e.target.pointId;
+            const P_new = e.target.getLatLng(); // The new position of the dragged marker
+            
+            const T = targetMarker.getLatLng();
+            const T3 = L.latLng(T.lat * 3, T.lng * 3);
+
+            // Get positions of the other two markers
+            const otherMarkers = markers.filter(m => m.pointId !== draggedMarkerIndex);
+            const Pj = otherMarkers[0].getLatLng();
+            const Pk = otherMarkers[1].getLatLng();
+
+            // The core calculation to find the new positions for the other two markers
+            // P_j_new = (3T - P_i_new - P_k + P_j) / 2
+            const Pj_new_lat = (T3.lat - P_new.lat - Pk.lat + Pj.lat) / 2;
+            const Pj_new_lng = (T3.lng - P_new.lng - Pk.lng + Pj.lng) / 2;
+            
+            // P_k_new = (3T - P_i_new + P_k - P_j) / 2
+            const Pk_new_lat = (T3.lat - P_new.lat + Pk.lat - Pj.lat) / 2;
+            const Pk_new_lng = (T3.lng - P_new.lng + Pk.lng - Pj.lng) / 2;
+
+            // Update the positions of the other two markers without triggering their drag events
+            otherMarkers[0].setLatLng(L.latLng(Pj_new_lat, Pj_new_lng));
+            otherMarkers[1].setLatLng(L.latLng(Pk_new_lat, Pk_new_lng));
+
+            updateCoordsDisplay();
+        }
+        
+        function updateCoordsDisplay() {
+            // Sort markers by their original ID to ensure they always appear in the same order
+            markers.sort((a, b) => a.pointId - b.pointId);
+
+            const p1 = markers[0].getLatLng();
+            const p2 = markers[1].getLatLng();
+            const p3 = markers[2].getLatLng();
+            
+            document.getElementById('point1-coords').textContent = `${p1.lat.toFixed(6)}, ${p1.lng.toFixed(6)}`;
+            document.getElementById('point2-coords').textContent = `${p2.lat.toFixed(6)}, ${p2.lng.toFixed(6)}`;
+            document.getElementById('point3-coords').textContent = `${p3.lat.toFixed(6)}, ${p3.lng.toFixed(6)}`;
+            
+            // Verify the centroid calculation
+            const tripointLat = (p1.lat + p2.lat + p3.lat) / 3;
+            const tripointLng = (p1.lng + p2.lng + p3.lng) / 3;
+            document.getElementById('tripoint-coords').textContent = `${tripointLat.toFixed(6)}, ${tripointLng.toFixed(6)}`;
+        }
+
+        updateMapBtn.addEventListener('click', updateMapAndMarkers);
+
+        // --- Tab Switching Logic ---
+        const tab1 = document.getElementById('tab1');
+        const tab2 = document.getElementById('tab2');
+        const page1 = document.getElementById('page1');
+        const page2 = document.getElementById('page2');
+
+        tab1.addEventListener('click', () => {
+            tab1.classList.add('tab-active');
+            tab2.classList.remove('tab-active');
+            page1.classList.remove('hidden');
+            page2.classList.add('hidden');
+        });
+
+        tab2.addEventListener('click', () => {
+            tab2.classList.add('tab-active');
+            tab1.classList.remove('tab-active');
+            page2.classList.remove('hidden');
+            page1.classList.add('hidden');
+            initMap(); // Initialize map when tab is first clicked
+        });
+
+    </script>
+</body>
+</html>
