@@ -37,6 +37,13 @@
             border-radius: 0.5rem;
             border: 1px solid #e5e7eb; /* gray-200 */
         }
+        .lock-btn {
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0 0 0 8px;
+            font-size: 1.1rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
@@ -101,13 +108,13 @@
         <div id="page2" class="hidden space-y-6">
              <div class="text-center">
                 <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Interactive Tripoint Solver</h1>
-                <p class="mt-2 text-gray-600">Set a target tripoint, then drag any of the three source points on the map. The other two will adjust automatically.</p>
+                <p class="mt-2 text-gray-600">Set a target, then drag points or lock one (🔒) to solve for the others.</p>
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                 <div>
                     <label for="mapTargetCoords" class="block text-sm font-medium text-gray-700">Target Tripoint (lat, lon)</label>
-                    <input type="text" id="mapTargetCoords" value="44.425612, -100.461359" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="text" id="mapTargetCoords" value="44.9778, -93.2650" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
                 <div class="text-right">
                     <button id="updateMapBtn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
@@ -123,16 +130,25 @@
                 <div class="space-y-4">
                     <h3 class="text-lg font-semibold text-gray-800 border-b pb-2">Source Point Coordinates</h3>
                     <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                        <p class="font-semibold text-blue-800">Point 1</p>
-                        <p id="point1-coords" class="text-sm text-blue-700 font-mono">0, 0</p>
+                        <div class="flex justify-between items-center">
+                            <p class="font-semibold text-blue-800">Point 1</p>
+                            <button id="lock1" data-point-index="0" class="lock-btn" title="Lock this point">🔓</button>
+                        </div>
+                        <p id="point1-coords" class="text-sm text-blue-700 font-mono mt-1">0, 0</p>
                     </div>
                      <div class="bg-green-50 p-3 rounded-lg border border-green-200">
-                        <p class="font-semibold text-green-800">Point 2</p>
-                        <p id="point2-coords" class="text-sm text-green-700 font-mono">0, 0</p>
+                        <div class="flex justify-between items-center">
+                            <p class="font-semibold text-green-800">Point 2</p>
+                             <button id="lock2" data-point-index="1" class="lock-btn" title="Lock this point">🔓</button>
+                        </div>
+                        <p id="point2-coords" class="text-sm text-green-700 font-mono mt-1">0, 0</p>
                     </div>
                      <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                        <p class="font-semibold text-yellow-800">Point 3</p>
-                        <p id="point3-coords" class="text-sm text-yellow-700 font-mono">0, 0</p>
+                        <div class="flex justify-between items-center">
+                             <p class="font-semibold text-yellow-800">Point 3</p>
+                             <button id="lock3" data-point-index="2" class="lock-btn" title="Lock this point">🔓</button>
+                        </div>
+                        <p id="point3-coords" class="text-sm text-yellow-700 font-mono mt-1">0, 0</p>
                     </div>
                      <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200 mt-4">
                         <p class="font-semibold text-indigo-800">Calculated Tripoint (Centroid)</p>
@@ -213,7 +229,6 @@
                 let closestTripoint = null;
                 let bestSourcePoints = null;
 
-                // This can be slow. A brief timeout allows the UI to update before the heavy loop.
                 await new Promise(resolve => setTimeout(resolve, 50));
 
                 for (const p1 of coords1) {
@@ -293,33 +308,17 @@
         let map = null;
         let markers = [];
         let targetMarker = null;
-
-        // Colors match the file inputs from page 1
-        const iconColors = {
-            p1: 'blue',
-            p2: 'green',
-            p3: 'yellow'
-        };
+        let lockedPointIndex = -1; // -1 means no point is locked
 
         function createIcon(color) {
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="${color}" stroke="black" stroke-width="1"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
-            return L.icon({
-                iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
-                iconSize: [32, 32],
-                iconAnchor: [16, 32],
-                popupAnchor: [0, -32]
-            });
+            return L.icon({ iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`, iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
         }
         
         function initMap() {
-            if (map) return; // Initialize only once
-
-            map = L.map('map').setView([44.425612, -100.461359], 10);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(map);
-            
-            // Initialize markers and target
+            if (map) return;
+            map = L.map('map');
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
             updateMapAndMarkers();
         }
         
@@ -332,87 +331,109 @@
             
             const target = L.latLng(lat, lon);
             
-            // Clear existing markers
             markers.forEach(m => map.removeLayer(m));
             markers = [];
             if(targetMarker) map.removeLayer(targetMarker);
+            lockedPointIndex = -1; // Reset lock on update
 
-            // Center map on the new target
             map.setView(target, 10);
             
-            // Create a non-draggable target marker (a star)
             const starSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="30" height="30" fill="gold" stroke="black" stroke-width="1"><path d="m12 17.27 4.15 2.51c.76.46 1.69-.22 1.49-1.08l-1.1-4.72 3.67-3.18c.67-.58.31-1.68-.57-1.75l-4.83-.41-1.89-4.46c-.34-.81-1.5-.81-1.84 0L9.19 8.63l-4.83.41c-.88.07-1.24 1.17-.57 1.75l3.67 3.18-1.1 4.72c-.2.86.73 1.54 1.49 1.08L12 17.27z"/></svg>';
-            targetMarker = L.marker(target, { 
-                icon: L.icon({ iconUrl: `data:image/svg+xml;base64,${btoa(starSvg)}`, iconSize: [30, 30], iconAnchor: [15, 15] })
-            }).addTo(map);
+            targetMarker = L.marker(target, { icon: L.icon({ iconUrl: `data:image/svg+xml;base64,${btoa(starSvg)}`, iconSize: [30, 30], iconAnchor: [15, 15] }) }).addTo(map);
 
-            // Initial positions for draggable points around the target
-            const p1 = L.latLng(target.lat + 0.1, target.lng - 0.1);
-            const p2 = L.latLng(target.lat - 0.05, target.lng + 0.15);
-            const p3 = L.latLng(target.lat - 0.05, target.lng - 0.05);
+            const initialPoints = [ L.latLng(target.lat + 0.1, target.lng - 0.1), L.latLng(target.lat - 0.05, target.lng + 0.15), L.latLng(target.lat - 0.05, target.lng - 0.05) ];
+            const colors = ['blue', 'green', 'yellow'];
 
-            const initialPoints = {p1, p2, p3};
-
-            Object.keys(initialPoints).forEach((key, index) => {
-                const marker = L.marker(initialPoints[key], { 
-                    draggable: true, 
-                    icon: createIcon(iconColors[key]) 
-                }).addTo(map);
-
-                marker.pointId = index; // 0, 1, or 2
+            initialPoints.forEach((point, index) => {
+                const marker = L.marker(point, { draggable: true, icon: createIcon(colors[index]) }).addTo(map);
+                marker.pointId = index;
                 marker.on('drag', onMarkerDrag);
                 markers.push(marker);
             });
             updateCoordsDisplay();
+            updateLockIcons();
         }
-
+        
         function onMarkerDrag(e) {
             const draggedMarkerIndex = e.target.pointId;
-            const P_new = e.target.getLatLng(); // The new position of the dragged marker
-            
+            const P_new_dragged = e.target.getLatLng();
             const T = targetMarker.getLatLng();
             const T3 = L.latLng(T.lat * 3, T.lng * 3);
 
-            // Get positions of the other two markers
-            const otherMarkers = markers.filter(m => m.pointId !== draggedMarkerIndex);
-            const Pj = otherMarkers[0].getLatLng();
-            const Pk = otherMarkers[1].getLatLng();
+            if (lockedPointIndex === -1) {
+                // CASE 0: No points locked (original behavior)
+                const otherMarkers = markers.filter(m => m.pointId !== draggedMarkerIndex);
+                const Pj = otherMarkers[0].getLatLng();
+                const Pk = otherMarkers[1].getLatLng();
+                
+                const Pj_new_lat = (T3.lat - P_new_dragged.lat - Pk.lat + Pj.lat) / 2;
+                const Pj_new_lng = (T3.lng - P_new_dragged.lng - Pk.lng + Pj.lng) / 2;
+                
+                const Pk_new_lat = (T3.lat - P_new_dragged.lat + Pk.lat - Pj.lat) / 2;
+                const Pk_new_lng = (T3.lng - P_new_dragged.lng + Pk.lng - Pj.lng) / 2;
 
-            // The core calculation to find the new positions for the other two markers
-            // P_j_new = (3T - P_i_new - P_k + P_j) / 2
-            const Pj_new_lat = (T3.lat - P_new.lat - Pk.lat + Pj.lat) / 2;
-            const Pj_new_lng = (T3.lng - P_new.lng - Pk.lng + Pj.lng) / 2;
-            
-            // P_k_new = (3T - P_i_new + P_k - P_j) / 2
-            const Pk_new_lat = (T3.lat - P_new.lat + Pk.lat - Pj.lat) / 2;
-            const Pk_new_lng = (T3.lng - P_new.lng + Pk.lng - Pj.lng) / 2;
+                otherMarkers[0].setLatLng(L.latLng(Pj_new_lat, Pj_new_lng));
+                otherMarkers[1].setLatLng(L.latLng(Pk_new_lat, Pk_new_lng));
+            } else {
+                // CASE 1: One point is locked
+                const followerMarker = markers.find(m => m.pointId !== draggedMarkerIndex && m.pointId !== lockedPointIndex);
+                const lockedMarker = markers.find(m => m.pointId === lockedPointIndex);
+                const P_locked = lockedMarker.getLatLng();
 
-            // Update the positions of the other two markers without triggering their drag events
-            otherMarkers[0].setLatLng(L.latLng(Pj_new_lat, Pj_new_lng));
-            otherMarkers[1].setLatLng(L.latLng(Pk_new_lat, Pk_new_lng));
+                // P_follower = 3T - P_dragged - P_locked
+                const P_new_follower_lat = T3.lat - P_new_dragged.lat - P_locked.lat;
+                const P_new_follower_lng = T3.lng - P_new_dragged.lng - P_locked.lng;
 
+                followerMarker.setLatLng(L.latLng(P_new_follower_lat, P_new_follower_lng));
+            }
             updateCoordsDisplay();
         }
-        
-        function updateCoordsDisplay() {
-            // Sort markers by their original ID to ensure they always appear in the same order
-            markers.sort((a, b) => a.pointId - b.pointId);
 
+        function toggleLock(indexToToggle) {
+            if (lockedPointIndex === indexToToggle) {
+                // Unlock the currently locked point
+                lockedPointIndex = -1;
+            } else {
+                // Lock this point (and implicitly unlock any other)
+                lockedPointIndex = indexToToggle;
+            }
+            updateLockIcons();
+        }
+        
+        function updateLockIcons() {
+            markers.forEach((marker, index) => {
+                const lockButton = document.getElementById(`lock${index + 1}`);
+                if (index === lockedPointIndex) {
+                    marker.dragging.disable();
+                    lockButton.textContent = '🔒';
+                    lockButton.title = 'Unlock this point';
+                } else {
+                    marker.dragging.enable();
+                    lockButton.textContent = '🔓';
+                    lockButton.title = 'Lock this point';
+                }
+            });
+        }
+
+        function updateCoordsDisplay() {
+            markers.sort((a, b) => a.pointId - b.pointId);
+            markers.forEach((marker, index) => {
+                const pos = marker.getLatLng();
+                document.getElementById(`point${index + 1}-coords`).textContent = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;
+            });
+            
             const p1 = markers[0].getLatLng();
             const p2 = markers[1].getLatLng();
             const p3 = markers[2].getLatLng();
-            
-            document.getElementById('point1-coords').textContent = `${p1.lat.toFixed(6)}, ${p1.lng.toFixed(6)}`;
-            document.getElementById('point2-coords').textContent = `${p2.lat.toFixed(6)}, ${p2.lng.toFixed(6)}`;
-            document.getElementById('point3-coords').textContent = `${p3.lat.toFixed(6)}, ${p3.lng.toFixed(6)}`;
-            
-            // Verify the centroid calculation
             const tripointLat = (p1.lat + p2.lat + p3.lat) / 3;
             const tripointLng = (p1.lng + p2.lng + p3.lng) / 3;
             document.getElementById('tripoint-coords').textContent = `${tripointLat.toFixed(6)}, ${tripointLng.toFixed(6)}`;
         }
 
         updateMapBtn.addEventListener('click', updateMapAndMarkers);
+        document.getElementById('lock1').addEventListener('click', () => toggleLock(0));
+        document.getElementById('lock2').addEventListener('click', () => toggleLock(1));
+        document.getElementById('lock3').addEventListener('click', () => toggleLock(2));
 
         // --- Tab Switching Logic ---
         const tab1 = document.getElementById('tab1');
@@ -432,9 +453,8 @@
             tab1.classList.remove('tab-active');
             page2.classList.remove('hidden');
             page1.classList.add('hidden');
-            initMap(); // Initialize map when tab is first clicked
+            initMap();
         });
-
     </script>
 </body>
 </html>
