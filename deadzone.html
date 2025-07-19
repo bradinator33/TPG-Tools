@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Boundary Deadzone Calculator</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet.js for map visualization -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Turf.js for geospatial analysis -->
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+
+    <style>
+        /* Custom styles for the map and loader */
+        #map { 
+            height: 500px; 
+            width: 100%;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .loader {
+            border: 8px solid #f3f3f3; /* Light grey */
+            border-top: 8px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Ensure Leaflet popups have a higher z-index */
+        .leaflet-popup-pane {
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans p-4 sm:p-6 lg:p-8">
+
+    <div class="max-w-7xl mx-auto bg-white p-6 sm:p-8 rounded-xl shadow-lg">
+        
+        <header class="mb-6 text-center">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">Geographic Deadzone Calculator</h1>
+            <p class="text-gray-600 mt-2">Upload your points and a boundary file to find the geographic deadzone.</p>
+        </header>
+
+        <!-- Main Content Area -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Left Panel: Controls and Info -->
+            <div class="lg:col-span-1 space-y-6">
+                
+                <!-- File Upload Section -->
+                <div class="space-y-4">
+                    <div>
+                        <label for="csvFile" class="block text-lg font-medium text-gray-700 mb-2">1. Upload Points (CSV)</label>
+                        <input type="file" id="csvFile" accept=".csv, text/csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors duration-200 cursor-pointer"/>
+                        <p class="text-xs text-gray-500 mt-2">CSV with latitude in the first column, longitude in the second. No header.</p>
+                    </div>
+                    <div>
+                        <label for="geojsonFile" class="block text-lg font-medium text-gray-700 mb-2">2. Upload Custom Boundary (GeoJSON)</label>
+                        <input type="file" id="geojsonFile" accept=".geojson,.json,application/geo+json" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 transition-colors duration-200 cursor-pointer"/>
+                        <p class="text-xs text-gray-500 mt-2">Optional. Overrides the default boundary loaded from GitHub.</p>
+                    </div>
+                </div>
+
+                <!-- Calculation Trigger -->
+                <div>
+                    <button id="calculateBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105 duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                        3. Calculate Deadzone
+                    </button>
+                </div>
+
+                <!-- Results Display -->
+                <div id="results" class="hidden space-y-4 p-4 bg-gray-50 rounded-lg border">
+                    <h2 class="text-xl font-semibold text-gray-800">Calculation Complete</h2>
+                    <div>
+                        <h3 class="font-medium text-gray-700">Farthest Point (Deadzone):</h3>
+                        <p id="deadzoneCoords" class="text-blue-600 font-mono text-lg"></p>
+                    </div>
+                    <div>
+                        <h3 class="font-medium text-gray-700">Distance:</h3>
+                        <p id="deadzoneDist" class="text-blue-600 font-mono text-lg"></p>
+                    </div>
+                     <div>
+                        <h3 class="font-medium text-gray-700">Uploaded Points:</h3>
+                        <p id="pointsCount" class="text-blue-600 font-mono text-lg"></p>
+                    </div>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="loaderContainer" class="hidden flex-col items-center justify-center text-center p-4">
+                    <div class="loader"></div>
+                    <p id="loaderText" class="text-gray-600 mt-4 font-medium">Calculating...</p>
+                </div>
+
+            </div>
+
+            <!-- Right Panel: Map -->
+            <div class="lg:col-span-2">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Global Variables ---
+        let map;
+        let uploadedPoints = [];
+        let pointMarkers = L.layerGroup();
+        let deadzoneMarker = null;
+        let boundaryLayer = null; // To hold the boundary map layer
+        let activeBoundaryPolygon; // To hold the turf.js polygon for calculations
+        let activeBounds; // To hold the bounding box for the calculation grid
+
+        // --- Fallback Contiguous US Boundary ---
+        // This is used only if the fetch from GitHub fails.
+        const fallbackUsPolygon = turf.polygon([[
+            [-124.73, 48.38], [-124.55, 46.27], [-124.13, 43.30], [-124.22, 41.75], 
+            [-122.48, 37.78], [-120.45, 34.58], [-117.25, 32.62], [-114.7, 32.5], 
+            [-108.2, 31.3], [-103.0, 31.7], [-99.5, 29.8], [-97.1, 25.9], 
+            [-94.8, 29.3], [-91.5, 29.2], [-89.0, 30.2], [-88.0, 30.3], 
+            [-85.5, 30.0], [-83.0, 29.0], [-81.4, 27.5], [-80.8, 25.0], 
+            [-80.0, 28.0], [-80.5, 31.0], [-79.0, 33.5], [-76.0, 35.0], 
+            [-75.2, 37.0], [-74.0, 39.5], [-72.0, 41.0], [-70.0, 41.8], 
+            [-69.0, 43.8], [-67.0, 44.8], [-68.0, 47.4], [-71.5, 45.0], 
+            [-75.0, 45.0], [-79.0, 43.2], [-82.5, 41.6], [-83.0, 42.5], 
+            [-84.5, 43.5], [-87.0, 46.0], [-92.2, 46.8], [-95.1, 49.0], 
+            [-97.0, 49.0], [-104.0, 49.0], [-110.0, 49.0], [-116.0, 49.0], 
+            [-122.0, 49.0], [-124.73, 48.38]
+        ]]);
+        
+        // --- Map Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            map = L.map('map').setView([39.8283, -98.5795], 4);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            
+            pointMarkers.addTo(map);
+
+            // --- Fetch Default Boundary from GitHub ---
+            const defaultBoundaryUrl = 'https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/contigUS.geojson';
+            
+            fetch(defaultBoundaryUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok. Status: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(geojsonData => {
+                    setBoundary(geojsonData);
+                })
+                .catch(error => {
+                    console.error('Failed to fetch default boundary from GitHub:', error);
+                    alert('Could not load the default map boundary from GitHub. Falling back to a built-in US boundary.');
+                    // Fallback to the old hard-coded polygon if the fetch fails
+                    setBoundary(fallbackUsPolygon);
+                });
+        });
+
+        // --- Event Listeners ---
+        const csvFileInput = document.getElementById('csvFile');
+        const geojsonFileInput = document.getElementById('geojsonFile');
+        const calculateBtn = document.getElementById('calculateBtn');
+        
+        csvFileInput.addEventListener('change', handleCsvFileSelect);
+        geojsonFileInput.addEventListener('change', handleGeoJsonFileSelect);
+        calculateBtn.addEventListener('click', calculateDeadzone);
+
+        // --- Functions ---
+
+        function setBoundary(geojson) {
+            let boundaryFeature = null;
+            if (geojson.type === 'FeatureCollection') {
+                boundaryFeature = geojson.features.find(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
+            } else if (geojson.type === 'Feature') {
+                if (geojson.geometry && (geojson.geometry.type === 'Polygon' || geojson.geometry.type === 'MultiPolygon')) {
+                    boundaryFeature = geojson;
+                }
+            } else if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon') {
+                boundaryFeature = turf.feature(geojson);
+            }
+
+            if (!boundaryFeature) {
+                alert("Could not find a valid Polygon or MultiPolygon in the provided GeoJSON file.");
+                return;
+            }
+            
+            activeBoundaryPolygon = boundaryFeature; 
+            const bbox = turf.bbox(activeBoundaryPolygon);
+            activeBounds = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
+            
+            if (boundaryLayer && map.hasLayer(boundaryLayer)) {
+                map.removeLayer(boundaryLayer);
+            }
+            
+            boundaryLayer = L.geoJSON(activeBoundaryPolygon, {
+                style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false }
+            }).addTo(map);
+            
+            map.fitBounds(boundaryLayer.getBounds());
+        }
+
+        function handleGeoJsonFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const geojsonData = JSON.parse(e.target.result);
+                    setBoundary(geojsonData);
+                } catch (error) {
+                    alert("Invalid GeoJSON file. Please check the file format.");
+                    console.error("GeoJSON parsing error:", error);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function handleCsvFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const csvContent = e.target.result;
+                parseCSV(csvContent);
+                calculateBtn.disabled = uploadedPoints.length === 0;
+                if (uploadedPoints.length === 0) {
+                    alert("Could not find any valid coordinate points in the CSV.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(csvContent) {
+            uploadedPoints = [];
+            pointMarkers.clearLayers();
+            if (deadzoneMarker) map.removeLayer(deadzoneMarker);
+            document.getElementById('results').classList.add('hidden');
+
+            const lines = csvContent.split(/\r\n|\n/).filter(line => line.trim() !== '');
+            if (lines.length === 0) return;
+
+            for (let i = 0; i < lines.length; i++) {
+                const data = lines[i].split(',');
+                const lat = parseFloat(data[0]);
+                const lon = parseFloat(data[1]);
+
+                if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                    uploadedPoints.push([lat, lon]);
+                }
+            }
+            
+            document.getElementById('pointsCount').textContent = `${uploadedPoints.length} points found`;
+            visualizeUploadedPoints();
+        }
+
+        function visualizeUploadedPoints() {
+            uploadedPoints.forEach(point => {
+                L.circleMarker(point, {
+                    radius: 6,
+                    color: '#ef4444',
+                    fillColor: '#f87171',
+                    fillOpacity: 0.8
+                }).addTo(pointMarkers).bindPopup(`Uploaded Point: <br> [${point[0].toFixed(4)}, ${point[1].toFixed(4)}]`);
+            });
+
+            if (uploadedPoints.length > 0) {
+                const pointsBounds = L.latLngBounds(uploadedPoints);
+                map.fitBounds(pointsBounds.pad(0.1));
+            }
+        }
+
+        async function calculateDeadzone() {
+            if (uploadedPoints.length === 0) {
+                alert("No points to calculate from. Please upload a CSV first.");
+                return;
+            }
+            if (!activeBoundaryPolygon) {
+                alert("No boundary defined. Please upload a GeoJSON or refresh the page to use the default.");
+                return;
+            }
+
+            calculateBtn.disabled = true;
+            const loaderContainer = document.getElementById('loaderContainer');
+            const loaderText = document.getElementById('loaderText');
+            loaderContainer.classList.remove('hidden');
+            loaderContainer.classList.add('flex');
+            document.getElementById('results').classList.add('hidden');
+            if (deadzoneMarker) map.removeLayer(deadzoneMarker);
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            loaderText.textContent = 'Calculating (Coarse Pass)...';
+            let coarseFarthestPoint = null;
+            let maxMinDistance = 0;
+            const coarseResolution = (activeBounds.maxLon - activeBounds.minLon) / 200;
+
+            for (let lat = activeBounds.minLat; lat <= activeBounds.maxLat; lat += coarseResolution) {
+                for (let lon = activeBounds.minLon; lon <= activeBounds.maxLon; lon += coarseResolution) {
+                    const currentPoint = turf.point([lon, lat]);
+                    if (turf.booleanPointInPolygon(currentPoint, activeBoundaryPolygon)) {
+                        let nearestDist = Infinity;
+                        for (const uploadedPoint of uploadedPoints) {
+                            const dist = haversineDistance([lat, lon], uploadedPoint);
+                            if (dist < nearestDist) nearestDist = dist;
+                        }
+                        if (nearestDist > maxMinDistance) {
+                            maxMinDistance = nearestDist;
+                            coarseFarthestPoint = [lat, lon];
+                        }
+                    }
+                }
+            }
+
+            if (!coarseFarthestPoint) {
+                loaderContainer.classList.add('hidden');
+                calculateBtn.disabled = false;
+                alert("Could not determine a deadzone. This might happen if uploaded points cover the entire area.");
+                return;
+            }
+
+            loaderText.textContent = 'Refining Accuracy (Fine Pass)...';
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            let finalFarthestPoint = coarseFarthestPoint;
+            const searchRadius = coarseResolution;
+            const fineBounds = {
+                minLat: coarseFarthestPoint[0] - searchRadius, maxLat: coarseFarthestPoint[0] + searchRadius,
+                minLon: coarseFarthestPoint[1] - searchRadius, maxLon: coarseFarthestPoint[1] + searchRadius,
+            };
+            const fineResolution = (searchRadius * 2) / 100;
+
+            for (let lat = fineBounds.minLat; lat <= fineBounds.maxLat; lat += fineResolution) {
+                for (let lon = fineBounds.minLon; lon <= fineBounds.maxLon; lon += fineResolution) {
+                    const currentPoint = turf.point([lon, lat]);
+                    if (turf.booleanPointInPolygon(currentPoint, activeBoundaryPolygon)) {
+                        let nearestDist = Infinity;
+                        for (const uploadedPoint of uploadedPoints) {
+                            const dist = haversineDistance([lat, lon], uploadedPoint);
+                            if (dist < nearestDist) nearestDist = dist;
+                        }
+                        if (nearestDist > maxMinDistance) {
+                            maxMinDistance = nearestDist;
+                            finalFarthestPoint = [lat, lon];
+                        }
+                    }
+                }
+            }
+
+            loaderContainer.classList.add('hidden');
+            calculateBtn.disabled = false;
+            displayResults(finalFarthestPoint, maxMinDistance);
+        }
+
+        function displayResults(point, distance) {
+            const [lat, lon] = point;
+            const distanceMiles = distance * 0.621371;
+
+            document.getElementById('deadzoneCoords').textContent = `[${lat.toFixed(6)}, ${lon.toFixed(6)}]`;
+            document.getElementById('deadzoneDist').textContent = `${distance.toFixed(2)} km / ${distanceMiles.toFixed(2)} mi`;
+            document.getElementById('results').classList.remove('hidden');
+
+            deadzoneMarker = L.marker(point, {
+                icon: L.icon({
+                    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+                    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png', shadowSize: [41, 41]
+                })
+            }).addTo(map);
+
+            deadzoneMarker.bindPopup(`<b>Deadzone</b><br>Farthest from any point.<br>[${lat.toFixed(6)}, ${lon.toFixed(6)}]`).openPopup();
+            map.setView(point, map.getZoom());
+        }
+
+        function haversineDistance(coords1, coords2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
+            const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
+            const lat1 = coords1[0] * Math.PI / 180;
+            const lat2 = coords2[0] * Math.PI / 180;
+            const a = Math.pow(Math.sin(dLat / 2), 2) + Math.pow(Math.sin(dLon / 2), 2) * Math.cos(lat1) * Math.cos(lat2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+    </script>
+</body>
+</html>
