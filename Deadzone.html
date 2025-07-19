@@ -4,19 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Custom Boundary Deadzone Calculator</title>
-    
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Leaflet.js for map visualization -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
-    <!-- Turf.js for geospatial analysis -->
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
 
     <style>
-        /* Custom styles for the map and loader */
         #map { 
             height: 500px; 
             width: 100%;
@@ -24,8 +17,8 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .loader {
-            border: 8px solid #f3f3f3; /* Light grey */
-            border-top: 8px solid #3498db; /* Blue */
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db;
             border-radius: 50%;
             width: 60px;
             height: 60px;
@@ -35,7 +28,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        /* Ensure Leaflet popups have a higher z-index */
         .leaflet-popup-pane {
             z-index: 1000;
         }
@@ -50,13 +42,10 @@
             <p class="text-gray-600 mt-2">Upload your points and a boundary file to find the geographic deadzone.</p>
         </header>
 
-        <!-- Main Content Area -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            <!-- Left Panel: Controls and Info -->
             <div class="lg:col-span-1 space-y-6">
                 
-                <!-- File Upload Section -->
                 <div class="space-y-4">
                     <div>
                         <label for="csvFile" class="block text-lg font-medium text-gray-700 mb-2">1. Upload Points (CSV)</label>
@@ -70,7 +59,11 @@
                     </div>
                 </div>
 
-                <!-- Calculation Trigger -->
+                <div class="flex items-center">
+                    <input id="gradientMode" name="gradientMode" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <label for="gradientMode" class="ml-3 block text-sm font-medium text-gray-700">Activate Gradient Mode</label>
+                </div>
+
                 <div>
                     <button id="calculateBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105 duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
                         3. Calculate Deadzone
@@ -94,7 +87,6 @@
                     </div>
                 </div>
 
-                <!-- Loading Indicator -->
                 <div id="loaderContainer" class="hidden flex-col items-center justify-center text-center p-4">
                     <div class="loader"></div>
                     <p id="loaderText" class="text-gray-600 mt-4 font-medium">Calculating...</p>
@@ -102,7 +94,6 @@
 
             </div>
 
-            <!-- Right Panel: Map -->
             <div class="lg:col-span-2">
                 <div id="map"></div>
             </div>
@@ -110,17 +101,15 @@
     </div>
 
     <script>
-        // --- Global Variables ---
         let map;
         let uploadedPoints = [];
         let pointMarkers = L.layerGroup();
         let deadzoneMarker = null;
-        let boundaryLayer = null; // To hold the boundary map layer
-        let activeBoundaryPolygon; // To hold the turf.js polygon for calculations
-        let activeBounds; // To hold the bounding box for the calculation grid
+        let boundaryLayer = null;
+        let gradientLayer = L.layerGroup();
+        let activeBoundaryPolygon;
+        let activeBounds;
 
-        // --- Fallback Contiguous US Boundary ---
-        // This is used only if the fetch from GitHub fails.
         const fallbackUsPolygon = turf.polygon([[
             [-124.73, 48.38], [-124.55, 46.27], [-124.13, 43.30], [-124.22, 41.75], 
             [-122.48, 37.78], [-120.45, 34.58], [-117.25, 32.62], [-114.7, 32.5], 
@@ -136,7 +125,6 @@
             [-122.0, 49.0], [-124.73, 48.38]
         ]]);
         
-        // --- Map Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             map = L.map('map').setView([39.8283, -98.5795], 4);
 
@@ -145,29 +133,23 @@
             }).addTo(map);
             
             pointMarkers.addTo(map);
+            gradientLayer.addTo(map);
 
-            // --- Fetch Default Boundary from GitHub ---
             const defaultBoundaryUrl = 'https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/contigUS.geojson';
             
             fetch(defaultBoundaryUrl)
                 .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok. Status: ' + response.status);
-                    }
+                    if (!response.ok) throw new Error('Network response was not ok.');
                     return response.json();
                 })
-                .then(geojsonData => {
-                    setBoundary(geojsonData);
-                })
+                .then(setBoundary)
                 .catch(error => {
                     console.error('Failed to fetch default boundary from GitHub:', error);
                     alert('Could not load the default map boundary from GitHub. Falling back to a built-in US boundary.');
-                    // Fallback to the old hard-coded polygon if the fetch fails
                     setBoundary(fallbackUsPolygon);
                 });
         });
 
-        // --- Event Listeners ---
         const csvFileInput = document.getElementById('csvFile');
         const geojsonFileInput = document.getElementById('geojsonFile');
         const calculateBtn = document.getElementById('calculateBtn');
@@ -176,18 +158,12 @@
         geojsonFileInput.addEventListener('change', handleGeoJsonFileSelect);
         calculateBtn.addEventListener('click', calculateDeadzone);
 
-        // --- Functions ---
-
         function setBoundary(geojson) {
             let boundaryFeature = null;
             if (geojson.type === 'FeatureCollection') {
                 boundaryFeature = geojson.features.find(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
-            } else if (geojson.type === 'Feature') {
-                if (geojson.geometry && (geojson.geometry.type === 'Polygon' || geojson.geometry.type === 'MultiPolygon')) {
-                    boundaryFeature = geojson;
-                }
-            } else if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon') {
-                boundaryFeature = turf.feature(geojson);
+            } else if (geojson.type === 'Feature' || geojson.type === 'Polygon' || geojson.type === 'MultiPolygon') {
+                boundaryFeature = turf.feature(geojson.geometry || geojson);
             }
 
             if (!boundaryFeature) {
@@ -199,9 +175,7 @@
             const bbox = turf.bbox(activeBoundaryPolygon);
             activeBounds = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
             
-            if (boundaryLayer && map.hasLayer(boundaryLayer)) {
-                map.removeLayer(boundaryLayer);
-            }
+            if (boundaryLayer) map.removeLayer(boundaryLayer);
             
             boundaryLayer = L.geoJSON(activeBoundaryPolygon, {
                 style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false }
@@ -220,7 +194,6 @@
                     setBoundary(geojsonData);
                 } catch (error) {
                     alert("Invalid GeoJSON file. Please check the file format.");
-                    console.error("GeoJSON parsing error:", error);
                 }
             };
             reader.readAsText(file);
@@ -231,8 +204,7 @@
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (e) => {
-                const csvContent = e.target.result;
-                parseCSV(csvContent);
+                parseCSV(e.target.result);
                 calculateBtn.disabled = uploadedPoints.length === 0;
                 if (uploadedPoints.length === 0) {
                     alert("Could not find any valid coordinate points in the CSV.");
@@ -250,11 +222,10 @@
             const lines = csvContent.split(/\r\n|\n/).filter(line => line.trim() !== '');
             if (lines.length === 0) return;
 
-            for (let i = 0; i < lines.length; i++) {
-                const data = lines[i].split(',');
+            for (const line of lines) {
+                const data = line.split(',');
                 const lat = parseFloat(data[0]);
                 const lon = parseFloat(data[1]);
-
                 if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
                     uploadedPoints.push([lat, lon]);
                 }
@@ -286,9 +257,11 @@
                 return;
             }
             if (!activeBoundaryPolygon) {
-                alert("No boundary defined. Please upload a GeoJSON or refresh the page to use the default.");
+                alert("No boundary defined.");
                 return;
             }
+
+            const isGradientMode = document.getElementById('gradientMode').checked;
 
             calculateBtn.disabled = true;
             const loaderContainer = document.getElementById('loaderContainer');
@@ -297,6 +270,7 @@
             loaderContainer.classList.add('flex');
             document.getElementById('results').classList.add('hidden');
             if (deadzoneMarker) map.removeLayer(deadzoneMarker);
+            gradientLayer.clearLayers();
 
             await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -304,6 +278,7 @@
             let coarseFarthestPoint = null;
             let maxMinDistance = 0;
             const coarseResolution = (activeBounds.maxLon - activeBounds.minLon) / 200;
+            const gridData = [];
 
             for (let lat = activeBounds.minLat; lat <= activeBounds.maxLat; lat += coarseResolution) {
                 for (let lon = activeBounds.minLon; lon <= activeBounds.maxLon; lon += coarseResolution) {
@@ -314,6 +289,11 @@
                             const dist = haversineDistance([lat, lon], uploadedPoint);
                             if (dist < nearestDist) nearestDist = dist;
                         }
+                        
+                        if (isGradientMode) {
+                            gridData.push({ coords: [lat, lon], distance: nearestDist });
+                        }
+
                         if (nearestDist > maxMinDistance) {
                             maxMinDistance = nearestDist;
                             coarseFarthestPoint = [lat, lon];
@@ -325,8 +305,12 @@
             if (!coarseFarthestPoint) {
                 loaderContainer.classList.add('hidden');
                 calculateBtn.disabled = false;
-                alert("Could not determine a deadzone. This might happen if uploaded points cover the entire area.");
+                alert("Could not determine a deadzone.");
                 return;
+            }
+
+            if (isGradientMode) {
+                drawGradient(gridData, coarseResolution);
             }
 
             loaderText.textContent = 'Refining Accuracy (Fine Pass)...';
@@ -361,6 +345,38 @@
             calculateBtn.disabled = false;
             displayResults(finalFarthestPoint, maxMinDistance);
         }
+        
+        function drawGradient(gridData, resolution) {
+            if (gridData.length === 0) return;
+
+            const distances = gridData.map(d => d.distance);
+            const min = Math.min(...distances);
+            const max = Math.max(...distances);
+
+            gridData.forEach(cell => {
+                const color = getColorForDistance(cell.distance, min, max);
+                const cellBounds = [
+                    [cell.coords[0] - resolution/2, cell.coords[1] - resolution/2],
+                    [cell.coords[0] + resolution/2, cell.coords[1] + resolution/2]
+                ];
+                L.rectangle(cellBounds, {
+                    color: color,
+                    weight: 0,
+                    fillOpacity: 0.5
+                }).addTo(gradientLayer);
+            });
+        }
+
+        function getColorForDistance(distance, min, max) {
+            if (max === min) return '#00ff00';
+            const ratio = (distance - min) / (max - min);
+            
+            const hue = (1 - ratio) * 120;
+
+            const lightness = 50 - (ratio * 35);
+
+            return `hsl(${hue}, 100%, ${lightness}%)`;
+        }
 
         function displayResults(point, distance) {
             const [lat, lon] = point;
@@ -383,7 +399,7 @@
         }
 
         function haversineDistance(coords1, coords2) {
-            const R = 6371; // Earth's radius in km
+            const R = 6371;
             const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
             const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
             const lat1 = coords1[0] * Math.PI / 180;
