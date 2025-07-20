@@ -163,8 +163,9 @@
             const stateSelector = document.getElementById('stateSelector');
             states.forEach(state => {
                 const option = document.createElement('option');
-                // Format name for URL, e.g., "New Hampshire" -> "newhampshire"
-                option.value = state.toLowerCase().replace(/\s+/g, '');
+                // *** THIS IS THE FIX ***
+                // Keep the space for two-word states. The browser will encode it.
+                option.value = state.toLowerCase();
                 option.textContent = state;
                 stateSelector.appendChild(option);
             });
