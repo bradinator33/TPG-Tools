@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Random US Coordinates Generator</title>
+    <!-- Leaflet for the map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Turf.js for geospatial analysis -->
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
     <style>
         body { font-family: sans-serif; padding: 1em; }
@@ -72,6 +74,7 @@
     <div>
         <label for="stateSelector">Select States (Hold Ctrl/Cmd to select multiple):</label>
         <select id="stateSelector" multiple>
+            <!-- Options will be populated by JavaScript -->
         </select>
     </div>
     
@@ -94,6 +97,7 @@
     <div id="map"></div>
 
     <script>
+        // --- GLOBALS ---
         let map;
         let pinsLayer = null;
         let boundaryLayer = null;
@@ -134,13 +138,14 @@
             "U.S. Virgin Islands": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/USVI.geojson"
         };
 
+        // --- INITIALIZATION ---
         function initMap() {
             map = L.map('map').setView([39.8283, -98.5795], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
             boundaryLayer = L.geoJSON(null, { style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false } }).addTo(map);
-            pinsLayer = L.layerGroup().addTo(map);
+            pinsLayer = L.featureGroup().addTo(map);
             
             populateStateSelector();
             document.getElementById('generateBtn').addEventListener('click', handleSingleGeneration);
@@ -177,6 +182,7 @@
             document.getElementById('regionSelector').value = "";
         }
 
+        // --- UI & STATUS HANDLING ---
         function showLoader(text) {
             const loader = document.getElementById('loader');
             loader.textContent = text;
@@ -211,6 +217,7 @@
             updateOutput('Click a button to generate coordinates.');
         }
 
+        // --- CORE LOGIC ---
         async function handleSingleGeneration() {
             resetUI();
             const location = await generateSinglePoint();
@@ -240,7 +247,7 @@
                 } else {
                     updateOutput(`Failed to generate point ${i}. Please try again.`);
                     hideLoader();
-                    return;
+                    return; // Stop if one fails
                 }
             }
             
@@ -280,22 +287,26 @@
                 let validPoint = null;
                 let attempts = 0;
 
+                // Check if a specific region preset with a bounding box is selected
                 const regionBbox = regionBoundingBoxes[regionName];
 
                 if (regionBbox) {
-                    while (!validPoint && attempts < 1000) {
+                    // **NEW LOGIC:** Use the large region bounding box for generation
+                    while (!validPoint && attempts < 1000) { // Increased attempts for larger, more complex areas
                         const coord = getRandomCoordinateInRegion(regionBbox);
                         const randomPoint = turf.point([coord.lon, coord.lat]);
                         
+                        // Check if the point is inside ANY of the states of that region
                         for (const stateGeoJSON of geojsonArray) {
                             if (turf.booleanPointInPolygon(randomPoint, stateGeoJSON)) {
                                 validPoint = { lat: coord.lat, lon: coord.lon, state: stateGeoJSON.properties.name };
-                                break;
+                                break; // Exit inner loop once a state is found
                             }
                         }
                         attempts++;
                     }
                 } else {
+                    // **OLD LOGIC (Area-weighted):** For manual selections or territories
                     const weightedFeatures = geojsonArray.map(feature => {
                         const bbox = turf.bbox(feature);
                         const area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
@@ -305,7 +316,7 @@
 
                     while (!validPoint && attempts < 500) {
                         let random = Math.random() * totalArea;
-                        let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
+                        let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature; // Fallback
                         for (const item of weightedFeatures) {
                             random -= item.area;
                             if (random <= 0) {
@@ -374,6 +385,7 @@
             return feature;
         }
 
+        // --- HELPER FUNCTIONS ---
         function getRandomUSRegion() {
             const regions = [
                 { name: "Contiguous US", minLat: 24.8, maxLat: 49.0, minLon: -124.72, maxLon: -66.8 },
