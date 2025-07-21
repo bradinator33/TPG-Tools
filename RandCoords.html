@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Random US Coordinates Generator</title>
-    <!-- Leaflet for the map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Turf.js for geospatial analysis -->
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
     <style>
         body { font-family: sans-serif; padding: 1em; }
@@ -30,6 +28,10 @@
         button {
             margin-top: 1em;
         }
+        button:disabled {
+            cursor: not-allowed;
+            color: #aaa;
+        }
         #output {
             margin-top: 1em;
             font-family: monospace;
@@ -37,12 +39,17 @@
             background-color: #f4f4f4;
             padding: 0.5em;
             border: 1px solid #ddd;
+            max-height: 200px;
+            overflow-y: auto;
         }
         #loader {
             display: none;
             margin-top: 1em;
             font-style: italic;
             color: #555;
+        }
+        .controls-group {
+            margin-top: 1em;
         }
     </style>
 </head>
@@ -65,25 +72,33 @@
     <div>
         <label for="stateSelector">Select States (Hold Ctrl/Cmd to select multiple):</label>
         <select id="stateSelector" multiple>
-            <!-- Options will be populated by JavaScript -->
         </select>
     </div>
     
     <button id="clearSelectionBtn">Clear Selection</button>
-    <br>
-    <button id="generateBtn">Generate Random Location</button>
+    <button id="downloadBtn" disabled>Download Locations as CSV</button>
+    
+    <div class="controls-group">
+        <button id="generateBtn">Generate Single Location</button>
+    </div>
 
-    <div id="output">Click the button to generate coordinates.</div>
+    <div class="controls-group">
+        <label for="numToGenerate">Number of Locations:</label>
+        <input type="number" id="numToGenerate" value="10" min="1" max="1000" style="width: 60px;">
+        <button id="generateMultipleBtn">Generate Multiple Locations</button>
+    </div>
+
+    <div id="output">Click a button to generate coordinates.</div>
     <div id="loader">Finding a valid point...</div>
 
     <div id="map"></div>
 
     <script>
-        // --- GLOBALS ---
         let map;
-        let currentPin = null;
+        let pinsLayer = null;
         let boundaryLayer = null;
-        const stateGeoJsonCache = new Map(); // Cache for fetched GeoJSON files
+        const stateGeoJsonCache = new Map();
+        let generatedLocations = [];
 
         const stateNames = [
             "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
@@ -111,16 +126,18 @@
             "U.S. Virgin Islands": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/USVI.geojson"
         };
 
-        // --- INITIALIZATION ---
         function initMap() {
             map = L.map('map').setView([39.8283, -98.5795], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
             boundaryLayer = L.geoJSON(null, { style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false } }).addTo(map);
+            pinsLayer = L.layerGroup().addTo(map);
             
             populateStateSelector();
-            document.getElementById('generateBtn').addEventListener('click', handleGeneration);
+            document.getElementById('generateBtn').addEventListener('click', handleSingleGeneration);
+            document.getElementById('generateMultipleBtn').addEventListener('click', handleMultipleGeneration);
+            document.getElementById('downloadBtn').addEventListener('click', downloadCSV);
             document.getElementById('regionSelector').addEventListener('change', handleRegionSelect);
             document.getElementById('clearSelectionBtn').addEventListener('click', clearStateSelection);
         }
@@ -139,7 +156,6 @@
             const selectedRegion = event.target.value;
             const stateSelector = document.getElementById('stateSelector');
             const statesToSelect = regionPresets[selectedRegion] || [];
-
             for (const option of stateSelector.options) {
                 option.selected = statesToSelect.includes(option.value);
             }
@@ -153,182 +169,186 @@
             document.getElementById('regionSelector').value = "";
         }
 
-        // --- UI & STATUS HANDLING ---
         function showLoader(text) {
             const loader = document.getElementById('loader');
             loader.textContent = text;
             loader.style.display = 'block';
             document.getElementById('output').style.display = 'none';
             document.getElementById('generateBtn').disabled = true;
+            document.getElementById('generateMultipleBtn').disabled = true;
         }
 
         function hideLoader() {
             document.getElementById('loader').style.display = 'none';
             document.getElementById('output').style.display = 'block';
             document.getElementById('generateBtn').disabled = false;
+            document.getElementById('generateMultipleBtn').disabled = false;
         }
 
         function updateOutput(html) {
             document.getElementById('output').innerHTML = html;
         }
         
-        function updateMap(lat, lon, locationData) {
+        function addPointToMap(lat, lon, locationData) {
             const location = L.latLng(lat, lon);
-            if (currentPin) {
-                map.removeLayer(currentPin);
-            }
-            currentPin = L.marker(location).addTo(map);
-            
-            let popupContent = `<b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b>`;
-            if(locationData && locationData.state) {
-                 popupContent += `<br>${locationData.county || 'N/A'}, ${locationData.state}`;
-            }
-            currentPin.bindPopup(popupContent).openPopup();
-            
-            if (!boundaryLayer.getBounds().isValid()) {
-                 map.setView(location, 6);
+            let popupContent = `<b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b><br>${locationData.county || 'N/A'}, ${locationData.state}`;
+            L.marker(location).addTo(pinsLayer).bindPopup(popupContent);
+        }
+
+        function resetUI() {
+            boundaryLayer.clearLayers();
+            pinsLayer.clearLayers();
+            generatedLocations = [];
+            document.getElementById('downloadBtn').disabled = true;
+            updateOutput('Click a button to generate coordinates.');
+        }
+
+        async function handleSingleGeneration() {
+            resetUI();
+            const location = await generateSinglePoint();
+            if (location) {
+                generatedLocations.push(location);
+                addPointToMap(location.lat, location.lon, location);
+                updateOutput(`${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}<br>${location.county}, ${location.state}`);
+                document.getElementById('downloadBtn').disabled = false;
+                map.setView([location.lat, location.lon], 6);
             }
         }
         
-        // --- CORE LOGIC ---
-        async function handleGeneration() {
-            const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
-            
-            boundaryLayer.clearLayers();
-            if(currentPin) map.removeLayer(currentPin);
-            updateOutput('Click the button to generate coordinates.');
+        async function handleMultipleGeneration() {
+            resetUI();
+            const numToGenerate = parseInt(document.getElementById('numToGenerate').value, 10);
+            if (isNaN(numToGenerate) || numToGenerate < 1) {
+                alert("Please enter a valid number of locations to generate.");
+                return;
+            }
 
-            if (selectedStates.length > 0) {
-                await generateLocationInStates(selectedStates);
-            } else {
-                await generateLocationInUSA();
+            for (let i = 1; i <= numToGenerate; i++) {
+                showLoader(`Generating ${i} of ${numToGenerate}...`);
+                const location = await generateSinglePoint();
+                if (location) {
+                    generatedLocations.push(location);
+                    addPointToMap(location.lat, location.lon, location);
+                } else {
+                    updateOutput(`Failed to generate point ${i}. Please try again.`);
+                    hideLoader();
+                    return;
+                }
+            }
+            
+            hideLoader();
+            const outputHtml = generatedLocations.map(loc => `<li>${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)} (${loc.county}, ${loc.state})</li>`).join('');
+            updateOutput(`<ul>${outputHtml}</ul>`);
+            document.getElementById('downloadBtn').disabled = false;
+            if (pinsLayer.getLayers().length > 0) {
+                map.fitBounds(pinsLayer.getBounds().pad(0.1));
             }
         }
 
+        async function generateSinglePoint() {
+            const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
+            showLoader('Finding a valid point...');
+
+            let point = null;
+            if (selectedStates.length > 0) {
+                point = await generateLocationInStates(selectedStates);
+            } else {
+                point = await generateLocationInUSA();
+            }
+
+            hideLoader();
+            return point;
+        }
+
         async function generateLocationInStates(states) {
-            showLoader('Fetching state boundaries...');
-            
             try {
                 const geojsonPromises = states.map(fetchStateGeoJSON);
                 const geojsonArray = await Promise.all(geojsonPromises);
+                if (!boundaryLayer.getLayers().length) {
+                    boundaryLayer.addData(geojsonArray);
+                }
                 
-                boundaryLayer.addData(geojsonArray);
-                map.fitBounds(boundaryLayer.getBounds());
-                
-                showLoader('Finding a valid point...');
-                
+                const weightedFeatures = geojsonArray.map(feature => {
+                    const bbox = turf.bbox(feature);
+                    const area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
+                    return { feature, area };
+                });
+
+                const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
+
                 let validPoint = null;
                 let attempts = 0;
-                
-                // **FIX:** Instead of one giant bounding box, pick a random state from the selection
-                // on each attempt and generate a point within its smaller, more relevant bounding box.
                 while (!validPoint && attempts < 500) {
-                    // 1. Pick a random feature (state/territory) from the fetched array.
-                    const randomIndex = Math.floor(Math.random() * geojsonArray.length);
-                    const randomFeature = geojsonArray[randomIndex];
-                    
-                    // 2. Get the bounding box for just that single feature.
-                    const singleBbox = turf.bbox(randomFeature);
-                    
-                    // 3. Generate a random point within that smaller bounding box.
+                    let random = Math.random() * totalArea;
+                    let selectedFeature = null;
+                    for (const item of weightedFeatures) {
+                        random -= item.area;
+                        if (random <= 0) {
+                            selectedFeature = item.feature;
+                            break;
+                        }
+                    }
+                    if (!selectedFeature) {
+                        selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
+                    }
+
+                    const singleBbox = turf.bbox(selectedFeature);
                     const randomPoint = turf.randomPoint(1, { bbox: singleBbox }).features[0];
                     
-                    // 4. Check if the point is actually inside that feature's polygon.
-                    if (turf.booleanPointInPolygon(randomPoint, randomFeature)) {
+                    if (turf.booleanPointInPolygon(randomPoint, selectedFeature)) {
                         const lon = randomPoint.geometry.coordinates[0];
                         const lat = randomPoint.geometry.coordinates[1];
-                        validPoint = { lat, lon, state: randomFeature.properties.name };
+                        validPoint = { lat, lon, state: selectedFeature.properties.name };
                     }
                     attempts++;
                 }
 
                 if (validPoint) {
-                    showLoader('Fetching address details...');
                     const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
-                    hideLoader();
-                    
                     validPoint.county = locationDetails.county || 'N/A';
-
-                    const locationText = `${validPoint.lat.toFixed(5)}, ${validPoint.lon.toFixed(5)}<br>${validPoint.county}, ${validPoint.state}`;
-                    updateOutput(locationText);
-                    updateMap(validPoint.lat, validPoint.lon, { state: validPoint.state, county: validPoint.county });
-                } else {
-                    hideLoader();
-                    updateOutput('Could not find a point in the selected states. Please try again.');
+                    return validPoint;
                 }
-
+                return null;
             } catch (error) {
                 console.error("Error fetching or processing state boundaries:", error);
-                hideLoader();
                 updateOutput(`<span style="color: red;">Error: ${error.message}</span>`);
+                return null;
             }
-        }
-
-        async function fetchStateGeoJSON(stateName) {
-            if (stateGeoJsonCache.has(stateName)) {
-                return stateGeoJsonCache.get(stateName);
-            }
-            
-            let url;
-            if (territoryUrls[stateName]) {
-                url = territoryUrls[stateName];
-            } else {
-                const urlName = stateName.toLowerCase();
-                url = `https://raw.githubusercontent.com/glynnbird/usstatesgeojson/refs/heads/master/${urlName}.geojson`;
-            }
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Could not fetch boundary for ${stateName}`);
-            }
-            const geojson = await response.json();
-            
-            // **FIX:** Standardize the GeoJSON to always be a Feature object,
-            // handling raw geometries, Features, and FeatureCollections.
-            let feature;
-            if (geojson.type === 'Feature') {
-                feature = geojson;
-            } else if (geojson.type === 'FeatureCollection') {
-                feature = geojson.features[0];
-            } else { 
-                // Assumes it's a raw geometry (e.g., Polygon) and wraps it in a Feature.
-                feature = turf.feature(geojson); 
-            }
-
-            feature.properties = feature.properties || {};
-            feature.properties.name = stateName;
-
-            stateGeoJsonCache.set(stateName, feature);
-            return feature;
         }
 
         async function generateLocationInUSA() {
-            showLoader('Finding a valid point in the US...');
-            
-            let validLocationData = null;
-            let coord;
             let attempts = 0;
-
-            while (!validLocationData && attempts < 100) {
+            while (attempts < 100) {
                 const region = getRandomUSRegion();
-                coord = getRandomCoordinateInRegion(region);
+                const coord = getRandomCoordinateInRegion(region);
                 const locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
                 if (locationData.valid && locationData.county !== "Unknown") {
-                    validLocationData = locationData;
+                    return { ...coord, ...locationData };
                 }
                 attempts++;
             }
-            
-            hideLoader();
+            updateOutput('Could not find a valid US location after many attempts. Please try again.');
+            return null;
+        }
 
-            if (validLocationData) {
-                const locationText = `${coord.lat.toFixed(5)}, ${coord.lon.toFixed(5)}<br>${validLocationData.county}, ${validLocationData.state}`;
-                updateOutput(locationText);
-                updateMap(coord.lat, coord.lon, validLocationData);
-                map.fitBounds([ [24.8, -124.72], [49.0, -66.8] ]);
-            } else {
-                updateOutput('Could not find a valid US location after many attempts. Please try again.');
-            }
+        async function fetchStateGeoJSON(stateName) {
+            if (stateGeoJsonCache.has(stateName)) return stateGeoJsonCache.get(stateName);
+            
+            let url = territoryUrls[stateName] || `https://raw.githubusercontent.com/glynnbird/usstatesgeojson/refs/heads/master/${stateName.toLowerCase()}.geojson`;
+            
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Could not fetch boundary for ${stateName}`);
+            const geojson = await response.json();
+            
+            let feature;
+            if (geojson.type === 'Feature') feature = geojson;
+            else if (geojson.type === 'FeatureCollection') feature = geojson.features[0];
+            else feature = turf.feature(geojson); 
+
+            feature.properties = feature.properties || {};
+            feature.properties.name = stateName;
+            stateGeoJsonCache.set(stateName, feature);
+            return feature;
         }
 
         function getRandomUSRegion() {
@@ -337,7 +357,7 @@
                 { name: "Hawaii", minLat: 18.8, maxLat: 22.4, minLon: -160.4, maxLon: -154.1 },
                 { name: "Alaska", minLat: 54.0, maxLat: 71.5, minLon: -179.0, maxLon: -129.5 }
             ];
-            let rand = Math.random();
+            const rand = Math.random();
             if (rand < 0.98) return regions[0];
             if (rand < 0.99) return regions[2];
             return regions[1];
@@ -355,17 +375,40 @@
                 const response = await fetch(url, { headers: { 'User-Agent': 'RandomCoordGenerator/1.0' } });
                 if (!response.ok) return { valid: false };
                 const data = await response.json();
-                if (data && data.address && (data.address.country_code === "us" || data.address.country_code === "as" || data.address.country_code === "gu" || data.address.country_code === "mp" || data.address.country_code === "pr" || data.address.country_code === "vi")) {
+                const countryCode = data.address?.country_code;
+                if (data && data.address && ["us", "as", "gu", "mp", "pr", "vi"].includes(countryCode)) {
                     return {
                         valid: true,
                         state: data.address.state || "Unknown",
-                        county: data.address.county || data.address.city || "N/A" // Fallback for territories
+                        county: data.address.county || data.address.city || "N/A"
                     };
                 }
             } catch (error) {
                 console.error("Nominatim API error:", error);
             }
             return { valid: false };
+        }
+
+        function downloadCSV() {
+            if (generatedLocations.length === 0) return;
+
+            const headers = "Latitude,Longitude,County,State";
+            const csvContent = [
+                headers,
+                ...generatedLocations.map(loc => `${loc.lat},${loc.lon},"${loc.county || ''}","${loc.state || ''}"`)
+            ].join("\n");
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "locations.csv");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
         }
 
     </script>
