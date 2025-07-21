@@ -117,6 +117,14 @@
             mid_atlantic: ["Delaware", "Maryland", "New Jersey", "New York", "Pennsylvania", "Virginia", "West Virginia"],
             territories: ["American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"]
         };
+        
+        const regionBoundingBoxes = {
+            midwest: { minLat: 35.8, maxLat: 49.8, minLon: -104.5, maxLon: -82 },
+            west: { minLat: 31.2, maxLat: 49.3, minLon: -125.7, maxLon: -102.5 },
+            south: { minLat: 24.3, maxLat: 41.2, minLon: -107.3, maxLon: -74.6 },
+            new_england: { minLat: 40.8, maxLat: 47.5, minLon: -73.8, maxLon: -66.5 },
+            mid_atlantic: { minLat: 36.5, maxLat: 45.1, minLon: -83.74, maxLon: -71.66 }
+        };
 
         const territoryUrls = {
             "American Samoa": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/AmericanSamoa.geojson",
@@ -247,11 +255,12 @@
 
         async function generateSinglePoint() {
             const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
+            const selectedRegion = document.getElementById('regionSelector').value;
             showLoader('Finding a valid point...');
 
             let point = null;
             if (selectedStates.length > 0) {
-                point = await generateLocationInStates(selectedStates);
+                point = await generateLocationInStates(selectedStates, selectedRegion);
             } else {
                 point = await generateLocationInUSA();
             }
@@ -260,7 +269,7 @@
             return point;
         }
 
-        async function generateLocationInStates(states) {
+        async function generateLocationInStates(states, regionName) {
             try {
                 const geojsonPromises = states.map(fetchStateGeoJSON);
                 const geojsonArray = await Promise.all(geojsonPromises);
@@ -268,39 +277,53 @@
                     boundaryLayer.addData(geojsonArray);
                 }
                 
-                const weightedFeatures = geojsonArray.map(feature => {
-                    const bbox = turf.bbox(feature);
-                    const area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
-                    return { feature, area };
-                });
-
-                const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
-
                 let validPoint = null;
                 let attempts = 0;
-                while (!validPoint && attempts < 500) {
-                    let random = Math.random() * totalArea;
-                    let selectedFeature = null;
-                    for (const item of weightedFeatures) {
-                        random -= item.area;
-                        if (random <= 0) {
-                            selectedFeature = item.feature;
-                            break;
-                        }
-                    }
-                    if (!selectedFeature) {
-                        selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
-                    }
 
-                    const singleBbox = turf.bbox(selectedFeature);
-                    const randomPoint = turf.randomPoint(1, { bbox: singleBbox }).features[0];
-                    
-                    if (turf.booleanPointInPolygon(randomPoint, selectedFeature)) {
-                        const lon = randomPoint.geometry.coordinates[0];
-                        const lat = randomPoint.geometry.coordinates[1];
-                        validPoint = { lat, lon, state: selectedFeature.properties.name };
+                const regionBbox = regionBoundingBoxes[regionName];
+
+                if (regionBbox) {
+                    while (!validPoint && attempts < 1000) {
+                        const coord = getRandomCoordinateInRegion(regionBbox);
+                        const randomPoint = turf.point([coord.lon, coord.lat]);
+                        
+                        for (const stateGeoJSON of geojsonArray) {
+                            if (turf.booleanPointInPolygon(randomPoint, stateGeoJSON)) {
+                                validPoint = { lat: coord.lat, lon: coord.lon, state: stateGeoJSON.properties.name };
+                                break;
+                            }
+                        }
+                        attempts++;
                     }
-                    attempts++;
+                } else {
+                    const weightedFeatures = geojsonArray.map(feature => {
+                        const bbox = turf.bbox(feature);
+                        const area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
+                        return { feature, area };
+                    });
+                    const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
+
+                    while (!validPoint && attempts < 500) {
+                        let random = Math.random() * totalArea;
+                        let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
+                        for (const item of weightedFeatures) {
+                            random -= item.area;
+                            if (random <= 0) {
+                                selectedFeature = item.feature;
+                                break;
+                            }
+                        }
+                        
+                        const singleBbox = turf.bbox(selectedFeature);
+                        const randomPoint = turf.randomPoint(1, { bbox: singleBbox }).features[0];
+                        
+                        if (turf.booleanPointInPolygon(randomPoint, selectedFeature)) {
+                            const lon = randomPoint.geometry.coordinates[0];
+                            const lat = randomPoint.geometry.coordinates[1];
+                            validPoint = { lat, lon, state: selectedFeature.properties.name };
+                        }
+                        attempts++;
+                    }
                 }
 
                 if (validPoint) {
