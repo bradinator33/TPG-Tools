@@ -17,6 +17,11 @@
     <label><input type="checkbox" id="toggleWorld"> Score Based on Earth</label>
     <label><input type="checkbox" id="toggleDistance"> Show Distance (Miles & Km)</label>
     <label><input type="checkbox" id="manualMode" onchange="toggleInputMode()"> Manual Distance Inputs</label>
+    <label><input type="checkbox" id="customMaxDMode" onchange="toggleCustomMaxD()"> Use Custom Maximum Distance</label>
+
+    <div id="customMaxDInput" class="hidden">
+        Max Distance (km): <input type="number" id="customMaxDValue" step="any" placeholder="e.g., 10000">
+    </div>
 
     <div id="coordInputs">
         <h3>Enter Target Coordinates:</h3>
@@ -41,143 +46,158 @@
     <div id="map"></div>
 
     <script>
-        let map = L.map('map').setView([20, 0], 2)
+        let map = L.map('map').setView([20, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map)
-        let markersLayer = L.layerGroup().addTo(map)
+        }).addTo(map);
+        let markersLayer = L.layerGroup().addTo(map);
 
         function toggleInputMode() {
-            const isManual = document.getElementById('manualMode').checked
-            document.getElementById('coordInputs').classList.toggle('hidden', isManual)
-            document.getElementById('manualInputs').classList.toggle('hidden', !isManual)
+            const isManual = document.getElementById('manualMode').checked;
+            document.getElementById('coordInputs').classList.toggle('hidden', isManual);
+            document.getElementById('manualInputs').classList.toggle('hidden', !isManual);
+        }
+
+        function toggleCustomMaxD() {
+            const useCustom = document.getElementById('customMaxDMode').checked;
+            document.getElementById('customMaxDInput').classList.toggle('hidden', !useCustom);
         }
 
         function haversine(lat1, lon1, lat2, lon2) {
-            const R = 6371
-            const toRad = angle => angle * Math.PI / 180
-            const dLat = toRad(lat2 - lat1)
-            const dLon = toRad(lon2 - lon1)
-            const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-            return 2 * R * Math.asin(Math.sqrt(a))
+            const R = 6371; // Radius of Earth in kilometers
+            const toRad = angle => angle * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a));
         }
 
-        let submissionPoints = []
+        let submissionPoints = [];
 
         function calculateScores() {
-            const toggleStates = document.getElementById('toggleStates').checked
-            const toggleWorld = document.getElementById('toggleWorld').checked
-            const showDistance = document.getElementById('toggleDistance').checked
-            const isManual = document.getElementById('manualMode').checked
+            const toggleStates = document.getElementById('toggleStates').checked;
+            const toggleWorld = document.getElementById('toggleWorld').checked;
+            const showDistance = document.getElementById('toggleDistance').checked;
+            const isManual = document.getElementById('manualMode').checked;
+            const useCustomMaxD = document.getElementById('customMaxDMode').checked;
 
-            let maxD, factor
-            if (toggleWorld) {
-                maxD = 20000
-                factor = 0.25
-            } else if (toggleStates) {
-                const targetLat = parseFloat(document.getElementById('targetLat').value)
-                maxD = targetLat > 50 ? 8875 : 9429
-                factor = targetLat > 50 ? 0.5633802 : 0.5302789
+            let maxD, factor;
+            if (useCustomMaxD) {
+                maxD = parseFloat(document.getElementById('customMaxDValue').value);
+                if (isNaN(maxD) || maxD <= 0) {
+                    alert("Please enter a valid positive number for Custom Maximum Distance.");
+                    return;
+                }
+                factor = 5000 / maxD; // Calculate factor based on the 5000 point scale for distance
             } else {
-                maxD = 4669
-                factor = 1.070893
+                if (toggleWorld) {
+                    maxD = 20000;
+                    factor = 0.25;
+                } else if (toggleStates) {
+                    const targetLat = parseFloat(document.getElementById('targetLat').value);
+                    maxD = targetLat > 50 ? 8875 : 9429;
+                    factor = targetLat > 50 ? 0.5633802 : 0.5302789;
+                } else {
+                    maxD = 4669;
+                    factor = 1.070893;
+                }
             }
 
-            let players = []
+            let players = [];
             if (isManual) {
                 players = document.getElementById('manualData').value.trim().split('\n').map(line => {
-                    const [name, dist] = line.split(',').map(v => v.trim())
-                    return { name, distance: parseFloat(dist) }
-                })
+                    const [name, dist] = line.split(',').map(v => v.trim());
+                    return { name, distance: parseFloat(dist) };
+                });
             } else {
-                const targetLat = parseFloat(document.getElementById('targetLat').value)
-                const targetLon = parseFloat(document.getElementById('targetLon').value)
+                const targetLat = parseFloat(document.getElementById('targetLat').value);
+                const targetLon = parseFloat(document.getElementById('targetLon').value);
                 players = document.getElementById('playerData').value.trim().split('\n').map(line => {
-                    const [lat, lon, name] = line.split(',').map(v => v.trim())
-                    const d = haversine(targetLat, targetLon, parseFloat(lat), parseFloat(lon))
-                    return { name, lat: parseFloat(lat), lon: parseFloat(lon), distance: d }
-                })
+                    const [lat, lon, name] = line.split(',').map(v => v.trim());
+                    const d = haversine(targetLat, targetLon, parseFloat(lat), parseFloat(lon));
+                    return { name, lat: parseFloat(lat), lon: parseFloat(lon), distance: d };
+                });
             }
 
-            players.sort((a, b) => a.distance - b.distance)
-            const totalPlayers = players.length
-            const topHalfThreshold = Math.ceil(totalPlayers / 1.99)
-            let results = []
-            markersLayer.clearLayers()
-            submissionPoints = []
-            let unranked = [...players]
-            let tiedGroups = []
+            players.sort((a, b) => a.distance - b.distance);
+            const totalPlayers = players.length;
+            const topHalfThreshold = Math.ceil(totalPlayers / 1.99);
+            let results = [];
+            markersLayer.clearLayers();
+            submissionPoints = [];
+            let unranked = [...players];
+            let tiedGroups = [];
 
             while (unranked.length > 0) {
-                let base = unranked[0]
-                let group = [base]
+                let base = unranked[0];
+                let group = [base];
                 for (let i = 1; i < unranked.length; i++) {
-                    let candidate = unranked[i]
-                    let allClose = group.every(p => Math.abs(p.distance - candidate.distance) <= 0.1)
+                    let candidate = unranked[i];
+                    let allClose = group.every(p => Math.abs(p.distance - candidate.distance) <= 0.1);
                     if (allClose && Math.abs(base.distance - candidate.distance) <= 0.1) {
-                        group.push(candidate)
+                        group.push(candidate);
                     }
                 }
-                group.forEach(g => unranked = unranked.filter(p => p !== g))
-                tiedGroups.push(group)
+                group.forEach(g => unranked = unranked.filter(p => p !== g));
+                tiedGroups.push(group);
             }
 
-            let rank = 1
+            let rank = 1;
             tiedGroups.forEach(group => {
-                let beaten = totalPlayers - rank
+                let beaten = totalPlayers - rank;
                 group.forEach(player => {
-                    let score = factor * (maxD - player.distance) + 5000 * (beaten / (totalPlayers - 1))
-                    score = Math.max(0, Math.round(score * 100) / 100)
-                    if (rank === 1) score += player.distance <= 0.01 ? 5000 : 3000
-                    if (rank === 2) score += 2000
-                    if (rank === 3) score += 1000
-                    player.score = score
-                    player.rank = rank
-                })
+                    let score = factor * (maxD - player.distance) + 5000 * (beaten / (totalPlayers - 1));
+                    score = Math.max(0, Math.round(score * 100) / 100);
+                    if (rank === 1) score += player.distance <= 0.01 ? 5000 : 3000;
+                    if (rank === 2) score += 2000;
+                    if (rank === 3) score += 1000;
+                    player.score = score;
+                    player.rank = rank;
+                });
 
                 if (group.length > 1) {
-                    let avgScore = Math.round(group.reduce((sum, p) => sum + p.score, 0) / group.length * 100) / 100
+                    let avgScore = Math.round(group.reduce((sum, p) => sum + p.score, 0) / group.length * 100) / 100;
                     group.forEach(player => {
-                        let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : ""
-                        let resultText = `${rank}. ${player.name}*: ${avgScore} points${distanceText}`
-                        if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
-                        results.push(resultText)
+                        let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : "";
+                        let resultText = `${rank}. ${player.name}*: ${avgScore} points${distanceText}`;
+                        if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`;
+                        results.push(resultText);
                         if (!isManual && 'lat' in player) {
-                            markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name))
-                            submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon })
+                            markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name));
+                            submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon });
                         }
-                    })
+                    });
                 } else {
-                    let player = group[0]
-                    let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : ""
-                    let resultText = `${rank}. ${player.name}: ${player.score.toFixed(2)} points${distanceText}`
-                    if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`
-                    results.push(resultText)
+                    let player = group[0];
+                    let distanceText = showDistance ? ` (${(player.distance * 0.621371).toFixed(2)} mi / ${player.distance.toFixed(2)} km)` : "";
+                    let resultText = `${rank}. ${player.name}: ${player.score.toFixed(2)} points${distanceText}`;
+                    if (rank < topHalfThreshold) resultText = `<b>${resultText}</b>`;
+                    results.push(resultText);
                     if (!isManual && 'lat' in player) {
-                        markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name))
-                        submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon })
+                        markersLayer.addLayer(L.marker([player.lat, player.lon]).bindPopup(player.name));
+                        submissionPoints.push({ name: player.name, lat: player.lat, lon: player.lon });
                     }
                 }
 
-                rank += 1
-            })
+                rank += group.length;
+            });
 
-            document.getElementById('results').innerHTML = results.join('<br>')
+            document.getElementById('results').innerHTML = results.join('<br>');
         }
 
         function downloadCSV() {
-            let csv = 'Name,Latitude,Longitude\n'
+            let csv = 'Name,Latitude,Longitude\n';
             submissionPoints.forEach(p => {
-                csv += `"${p.name}",${p.lat},${p.lon}\n`
-            })
-            let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-            let link = document.createElement("a")
-            link.href = URL.createObjectURL(blob)
-            link.download = "submission_points.csv"
-            link.style.display = "none"
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
+                csv += `"${p.name}",${p.lat},${p.lon}\n`;
+            });
+            let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "submission_points.csv";
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
     </script>
 </body>
