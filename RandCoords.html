@@ -101,6 +101,7 @@
         let generatedLocations = [];
 
         const stateNames = [
+            // HEY! Why are you rummaging in my code????????????? Oh, you want the coords? well they are 36.55798, -90.07773
             "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
             "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
             "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
@@ -312,7 +313,6 @@
                                 selectedFeature = item.feature;
                                 break;
                             }
-                            // Why hello! I think the coords you are looking for might be 36.55798, -90.07773
                         }
                         
                         const singleBbox = turf.bbox(selectedFeature);
@@ -446,4 +446,5 @@
     </script>
 </body>
 </html>
+
 
