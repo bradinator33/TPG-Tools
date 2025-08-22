@@ -99,9 +99,9 @@
         let boundaryLayer = null;
         const stateGeoJsonCache = new Map();
         let generatedLocations = [];
+        let shouldDrawBoundary = true;
 
         const stateNames = [
-            // HEY! Why are you rummaging in my code????????????? Oh, you want the coords? well they are 36.55798, -90.07773
             "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
             "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
             "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
@@ -109,6 +109,20 @@
             "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
             "American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"
         ];
+
+        const stateAreas = {
+            "Alabama": 131171, "Alaska": 1477953, "Arizona": 294207, "Arkansas": 134771, "California": 403466,
+            "Colorado": 268431, "Connecticut": 12542, "Delaware": 5047, "Florida": 138887, "Georgia": 149165,
+            "Hawaii": 16635, "Idaho": 214045, "Illinois": 143793, "Indiana": 92789, "Iowa": 144669,
+            "Kansas": 211754, "Kentucky": 102269, "Louisiana": 111898, "Maine": 79883, "Maryland": 25147,
+            "Massachusetts": 20202, "Michigan": 146435, "Minnesota": 206232, "Mississippi": 121531, "Missouri": 178040,
+            "Montana": 376962, "Nebraska": 198974, "Nevada": 284332, "New Hampshire": 23187, "New Jersey": 19047,
+            "New Mexico": 314161, "New York": 122057, "North Carolina": 125920, "North Dakota": 178711, "Ohio": 105829,
+            "Oklahoma": 177660, "Oregon": 248608, "Pennsylvania": 115883, "Rhode Island": 2678, "South Carolina": 77857,
+            "South Dakota": 196350, "Tennessee": 106798, "Texas": 676587, "Utah": 212818, "Vermont": 23871,
+            "Virginia": 102279, "Washington": 172119, "West Virginia": 62259, "Wisconsin": 140268, "Wyoming": 251470,
+            "American Samoa": 199, "Guam": 544, "Northern Mariana Islands": 464, "Puerto Rico": 8870, "U.S. Virgin Islands": 346
+        };
         
         const regionPresets = {
             midwest: ["Illinois", "Indiana", "Iowa", "Kansas", "Michigan", "Minnesota", "Missouri", "Nebraska", "North Dakota", "Ohio", "South Dakota", "Wisconsin"],
@@ -119,14 +133,6 @@
             territories: ["American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"]
         };
         
-        const regionBoundingBoxes = {
-            midwest: { minLat: 35.8, maxLat: 49.8, minLon: -104.5, maxLon: -80 },
-            west: { minLat: 31.2, maxLat: 49.3, minLon: -125.7, maxLon: -102.5 },
-            south: { minLat: 24.3, maxLat: 41.2, minLon: -100.3, maxLon: -74.6 },
-            new_england: { minLat: 40.8, maxLat: 47.5, minLon: -73.8, maxLon: -66.5 },
-            mid_atlantic: { minLat: 36.5, maxLat: 45.1, minLon: -83.74, maxLon: -71.66 }
-        };
-
         const territoryUrls = {
             "American Samoa": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/AmericanSamoa.geojson",
             "Guam": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/Guam.geojson",
@@ -214,6 +220,7 @@
 
         async function handleSingleGeneration() {
             resetUI();
+            shouldDrawBoundary = true;
             const location = await generateSinglePoint();
             if (location) {
                 generatedLocations.push(location);
@@ -226,6 +233,7 @@
         
         async function handleMultipleGeneration() {
             resetUI();
+            shouldDrawBoundary = false; 
             const numToGenerate = parseInt(document.getElementById('numToGenerate').value, 10);
             if (isNaN(numToGenerate) || numToGenerate < 1) {
                 alert("Please enter a valid number of locations to generate.");
@@ -238,10 +246,6 @@
                 if (location) {
                     generatedLocations.push(location);
                     addPointToMap(location.lat, location.lon, location);
-                } else {
-                    updateOutput(`Failed to generate point ${i}. Please try again.`);
-                    hideLoader();
-                    return;
                 }
             }
             
@@ -256,12 +260,10 @@
 
         async function generateSinglePoint() {
             const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
-            const selectedRegion = document.getElementById('regionSelector').value;
-            showLoader('Finding a valid point...');
-
+            
             let point = null;
             if (selectedStates.length > 0) {
-                point = await generateLocationInStates(selectedStates, selectedRegion);
+                point = await generateLocationInStates(selectedStates);
             } else {
                 point = await generateLocationInUSA();
             }
@@ -270,69 +272,36 @@
             return point;
         }
 
-        async function generateLocationInStates(states, regionName) {
+        async function generateLocationInStates(states) {
             try {
                 const geojsonPromises = states.map(fetchStateGeoJSON);
                 const geojsonArray = await Promise.all(geojsonPromises);
-                if (!boundaryLayer.getLayers().length) {
+                if (shouldDrawBoundary && !boundaryLayer.getLayers().length) {
                     boundaryLayer.addData(geojsonArray);
                 }
                 
-                let validPoint = null;
-                let attempts = 0;
+                const weightedFeatures = geojsonArray.map(feature => {
+                    const area = turf.area(feature);
+                    return { feature, area };
+                });
+                const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
 
-                const regionBbox = regionBoundingBoxes[regionName];
-
-                if (regionBbox) {
-                    while (!validPoint && attempts < 1000) {
-                        const coord = getRandomCoordinateInRegion(regionBbox);
-                        const randomPoint = turf.point([coord.lon, coord.lat]);
-                        
-                        for (const stateGeoJSON of geojsonArray) {
-                            if (turf.booleanPointInPolygon(randomPoint, stateGeoJSON)) {
-                                validPoint = { lat: coord.lat, lon: coord.lon, state: stateGeoJSON.properties.name };
-                                break;
-                            }
-                        }
-                        attempts++;
-                    }
-                } else {
-                    const weightedFeatures = geojsonArray.map(feature => {
-                        const bbox = turf.bbox(feature);
-                        const area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
-                        return { feature, area };
-                    });
-                    const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
-
-                    while (!validPoint && attempts < 500) {
-                        let random = Math.random() * totalArea;
-                        let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
-                        for (const item of weightedFeatures) {
-                            random -= item.area;
-                            if (random <= 0) {
-                                selectedFeature = item.feature;
-                                break;
-                            }
-                        }
-                        
-                        const singleBbox = turf.bbox(selectedFeature);
-                        const regionForBbox = { minLon: singleBbox[0], minLat: singleBbox[1], maxLon: singleBbox[2], maxLat: singleBbox[3] };
-                        const coord = getRandomCoordinateInRegion(regionForBbox);
-                        const randomPoint = turf.point([coord.lon, coord.lat]);
-                        
-                        if (turf.booleanPointInPolygon(randomPoint, selectedFeature)) {
-                            validPoint = { lat: coord.lat, lon: coord.lon, state: selectedFeature.properties.name };
-                        }
-                        attempts++;
+                let random = Math.random() * totalArea;
+                let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
+                for (const item of weightedFeatures) {
+                    random -= item.area;
+                    if (random <= 0) {
+                        selectedFeature = item.feature;
+                        break;
                     }
                 }
+                
+                const validPoint = await generatePointInSingleBoundary(selectedFeature.properties.name, selectedFeature);
+                
+                const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
+                validPoint.county = locationDetails.county || 'N/A';
+                return validPoint;
 
-                if (validPoint) {
-                    const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
-                    validPoint.county = locationDetails.county || 'N/A';
-                    return validPoint;
-                }
-                return null;
             } catch (error) {
                 console.error("Error fetching or processing state boundaries:", error);
                 updateOutput(`<span style="color: red;">Error: ${error.message}</span>`);
@@ -341,18 +310,66 @@
         }
 
         async function generateLocationInUSA() {
-            let attempts = 0;
-            while (attempts < 100) {
-                const region = getRandomUSRegion();
-                const coord = getRandomCoordinateInRegion(region);
-                const locationData = await checkIfValidUSLocation(coord.lat, coord.lon);
-                if (locationData.valid && locationData.county !== "Unknown") {
-                    return { ...coord, ...locationData };
+            const weightedStates = [];
+            let totalWeight = 0;
+            
+            for (const name of stateNames) {
+                const area = stateAreas[name];
+                if (!area) continue;
+                
+                let weight = area;
+                if (name === "Alaska") {
+                    weight /= 5.0;
                 }
-                attempts++;
+                weightedStates.push({ name: name, weight: weight });
+                totalWeight += weight;
             }
-            updateOutput('Could not find a valid US location after many attempts. Please try again.');
-            return null;
+
+            let random = Math.random() * totalWeight;
+            let selectedStateName = weightedStates[weightedStates.length - 1].name;
+            for (const state of weightedStates) {
+                random -= state.weight;
+                if (random <= 0) {
+                    selectedStateName = state.name;
+                    break;
+                }
+            }
+            
+            const point = await generatePointInSingleBoundary(selectedStateName);
+
+            const locationDetails = await checkIfValidUSLocation(point.lat, point.lon);
+            point.county = locationDetails.county || 'N/A';
+            point.state = locationDetails.state || selectedStateName;
+            return point;
+        }
+        
+        async function generatePointInSingleBoundary(stateName, stateGeoJSON = null) {
+            try {
+                if (!stateGeoJSON) {
+                    stateGeoJSON = await fetchStateGeoJSON(stateName);
+                }
+                
+                showLoader(`Finding a valid point in ${stateName}...`);
+                
+                if (shouldDrawBoundary && boundaryLayer && !boundaryLayer.getLayers().length) {
+                    boundaryLayer.addData(stateGeoJSON);
+                }
+
+                while (true) {
+                    const singleBbox = turf.bbox(stateGeoJSON);
+                    const regionForBbox = { minLon: singleBbox[0], minLat: singleBbox[1], maxLon: singleBbox[2], maxLat: singleBbox[3] };
+                    const coord = getRandomCoordinateInRegion(regionForBbox);
+                    const randomPoint = turf.point([coord.lon, coord.lat]);
+
+                    if (turf.booleanPointInPolygon(randomPoint, stateGeoJSON)) {
+                        return { lat: coord.lat, lon: coord.lon, state: stateGeoJSON.properties.name };
+                    }
+                }
+            } catch (error) {
+                console.error(`Error generating point in ${stateName}:`, error);
+                updateOutput(`<span style="color: red;">Error: Could not fetch data for ${stateName}.</span>`);
+                return null;
+            }
         }
 
         async function fetchStateGeoJSON(stateName) {
@@ -367,7 +384,7 @@
             let feature;
             if (geojson.type === 'Feature') feature = geojson;
             else if (geojson.type === 'FeatureCollection') feature = geojson.features[0];
-            else feature = turf.feature(geojson); 
+            else feature = turf.feature(geojson);  
 
             feature.properties = feature.properties || {};
             feature.properties.name = stateName;
@@ -375,29 +392,13 @@
             return feature;
         }
 
-        function getRandomUSRegion() {
-            const regions = [
-                { name: "Contiguous US", minLat: 24.8, maxLat: 49.0, minLon: -124.72, maxLon: -66.8 },
-                { name: "Hawaii", minLat: 18.8, maxLat: 22.4, minLon: -160.4, maxLon: -154.1 },
-                { name: "Alaska", minLat: 54.0, maxLat: 71.5, minLon: -179.0, maxLon: -129.5 }
-            ];
-            const rand = Math.random();
-            if (rand < 0.98) return regions[0];
-            if (rand < 0.99) return regions[2];
-            return regions[1];
-        }
-
         function getRandomCoordinateInRegion(region) {
             const lon = Math.random() * (region.maxLon - region.minLon) + region.minLon;
-
             const minLatRad = region.minLat * Math.PI / 180;
             const maxLatRad = region.maxLat * Math.PI / 180;
-
             const u = Math.random() * (Math.sin(maxLatRad) - Math.sin(minLatRad)) + Math.sin(minLatRad);
-
             const latRad = Math.asin(u);
             const lat = latRad * 180 / Math.PI;
-
             return { lat, lon };
         }
 
@@ -446,5 +447,3 @@
     </script>
 </body>
 </html>
-
-
