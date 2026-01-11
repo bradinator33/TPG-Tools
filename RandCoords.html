@@ -52,6 +52,9 @@
         .controls-group {
             margin-top: 1em;
         }
+        .speed-gen-container {
+            margin-top: 0.5em;
+        }
     </style>
 </head>
 <body onload="initMap()">
@@ -87,6 +90,10 @@
         <label for="numToGenerate">Number of Locations:</label>
         <input type="number" id="numToGenerate" value="10" min="1" max="1000" style="width: 60px;">
         <button id="generateMultipleBtn">Generate Multiple Locations</button>
+        <div class="speed-gen-container">
+            <input type="checkbox" id="speedGen">
+            <label for="speedGen" style="display: inline; font-weight: normal; cursor: pointer;">Speed Generation (Skips checking county)</label>
+        </div>
     </div>
 
     <div id="output">Click a button to generate coordinates.</div>
@@ -207,7 +214,7 @@
         
         function addPointToMap(lat, lon, locationData) {
             const location = L.latLng(lat, lon);
-            let popupContent = `<b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b><br>${locationData.county || 'N/A'}, ${locationData.state}`;
+            let popupContent = `<b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b><br>${locationData.county || 'Skipped'}, ${locationData.state}`;
             L.marker(location).addTo(pinsLayer).bindPopup(popupContent);
         }
 
@@ -226,7 +233,7 @@
             if (location) {
                 generatedLocations.push(location);
                 addPointToMap(location.lat, location.lon, location);
-                updateOutput(`${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}<br>${location.county}, ${location.state}`);
+                updateOutput(`${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}<br>${location.county || 'Skipped'}, ${location.state}`);
                 document.getElementById('downloadBtn').disabled = false;
                 map.setView([location.lat, location.lon], 6);
             }
@@ -251,7 +258,7 @@
             }
             
             hideLoader();
-            const outputHtml = generatedLocations.map(loc => `<li>${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)} (${loc.county}, ${loc.state})</li>`).join('');
+            const outputHtml = generatedLocations.map(loc => `<li>${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)} (${loc.county || 'Skipped'}, ${loc.state})</li>`).join('');
             updateOutput(`<ul>${outputHtml}</ul>`);
             document.getElementById('downloadBtn').disabled = false;
             if (pinsLayer.getLayers().length > 0) {
@@ -298,9 +305,16 @@
                 }
                 
                 const validPoint = await generatePointInSingleBoundary(selectedFeature.properties.name, selectedFeature);
+                const isSpeedGen = document.getElementById('speedGen').checked;
+
+                if (!isSpeedGen) {
+                    const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
+                    validPoint.county = locationDetails.county || 'N/A';
+                    validPoint.state = locationDetails.state || validPoint.state;
+                } else {
+                    validPoint.county = 'Skipped';
+                }
                 
-                const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
-                validPoint.county = locationDetails.county || 'N/A';
                 return validPoint;
 
             } catch (error) {
@@ -337,10 +351,16 @@
             }
             
             const point = await generatePointInSingleBoundary(selectedStateName);
+            const isSpeedGen = document.getElementById('speedGen').checked;
 
-            const locationDetails = await checkIfValidUSLocation(point.lat, point.lon);
-            point.county = locationDetails.county || 'N/A';
-            point.state = locationDetails.state || selectedStateName;
+            if (!isSpeedGen) {
+                const locationDetails = await checkIfValidUSLocation(point.lat, point.lon);
+                point.county = locationDetails.county || 'N/A';
+                point.state = locationDetails.state || selectedStateName;
+            } else {
+                point.county = 'Skipped';
+                point.state = selectedStateName;
+            }
             return point;
         }
         
@@ -448,4 +468,3 @@
     </script>
 </body>
 </html>
-
