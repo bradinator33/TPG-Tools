@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TPG Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #fff; margin: 0; padding: 0; }
+        #map { height: calc(100vh - 60px); width: 100%; border-top: 1px solid #ccc; }
+        
+        .control-panel {
+            background: #fdfdfd;
+            border: 1px solid #ccc;
+            width: 350px;
+            min-width: 250px;
+            max-width: 80vw;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .resizer-h {
+            width: 6px;
+            height: 100%;
+            position: absolute;
+            right: 0;
+            top: 0;
+            cursor: col-resize;
+            z-index: 1002;
+            transition: background 0.2s;
+        }
+        .resizer-h:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .panel-header {
+            background: #f8f9fa;
+            padding: 12px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .panel-content {
+            padding: 15px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .panel-content.hidden { display: none; }
+
+        label { display: block; font-weight: bold; font-size: 0.8rem; color: #444; margin-top: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.025em; }
+        
+        select, input[type="number"] {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #e5e7eb; }
+        button:disabled { color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb; }
+
+        .btn-primary { background: #2563eb; color: white; border-color: #1d4ed8; }
+        .btn-primary:hover { background: #1d4ed8; }
+        
+        .results-summary {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .stat-card:last-child { border-bottom: none; }
+        .stat-label { font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase; }
+        .stat-value { font-size: 0.85rem; font-weight: 800; color: #111827; text-align: right; }
+        .stat-sub { font-size: 0.65rem; color: #64748b; font-weight: normal; }
+
+        .log-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 10px;
+            margin-top: 4px;
+            background: #fff;
+            border: 1px solid #f3f4f6;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: background 0.2s;
+        }
+        .log-row:hover { background: #f0f9ff; border-color: #bae6fd; }
+        .clickable-stat { color: #2563eb; text-decoration: underline; cursor: pointer; }
+
+        .nav-bar {
+            height: 60px;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .nav-controls { display: flex; align-items: center; gap: 15px; }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #eff6ff;
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        .toggle-container input { cursor: pointer; }
+
+        .upload-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .upload-btn:hover { background: #059669; }
+
+        .leaflet-popup-content-wrapper { border-radius: 8px; }
+        .leaflet-popup-content b { color: #ef4444; }
+    </style>
+</head>
+<body>
+
+    <nav class="nav-bar">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <h1 style="margin:0; font-size: 1.1rem; font-weight: 900; color: #1e293b; text-transform: uppercase; letter-spacing: -0.02em;">TPG Simulator</h1>
+        </div>
+        <div class="nav-controls">
+            <div class="toggle-container">
+                <input type="checkbox" id="freqToggle">
+                <label for="freqToggle" style="margin:0; cursor: pointer;">Visualize Frequency</label>
+            </div>
+            <input type="file" id="csvFileInput" accept=".csv" style="display: none;" />
+            <button class="upload-btn" onclick="document.getElementById('csvFileInput').click()">Upload CSV</button>
+        </div>
+    </nav>
+
+    <div style="position: relative;">
+        <div id="map"></div>
+
+        <div class="control-panel" id="mainPanel">
+            <!-- Resize handle -->
+            <div class="resizer-h" id="panelResizer"></div>
+            
+            <div class="panel-header" onclick="togglePanel()">
+                <span id="panelTitle" style="font-weight: 800; font-size: 0.85rem; color: #334155; text-transform: uppercase;">Round Simulations</span>
+                <span id="csvStatus" style="font-size: 0.7rem; font-weight: bold; color: #ef4444;">No Data</span>
+            </div>
+            
+            <div class="panel-content" id="panelContent">
+                <label for="regionSelector">Region Preset</label>
+                <select id="regionSelector">
+                    <option value="">-- All USA --</option>
+                    <option value="midwest">Midwest</option>
+                    <option value="west">West</option>
+                    <option value="south">South</option>
+                    <option value="new_england">New England</option>
+                    <option value="mid_atlantic">Mid-Atlantic</option>
+                    <option value="territories">US Territories</option>
+                </select>
+
+                <label for="stateSelector">Individual States</label>
+                <select id="stateSelector" multiple style="height: 100px;"></select>
+                <button id="clearSelectionBtn" style="padding: 4px 8px; font-size: 0.7rem; margin-top: 5px;">Clear Selection</button>
+
+                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                    <button id="simulateBtn" class="btn-primary" disabled style="flex: 1;">Single Round</button>
+                    <button id="multiSimulateBtn" class="btn-primary" disabled style="flex: 1;">Multi Round</button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                    <span style="font-size: 0.75rem; font-weight: bold; color: #64748b; text-transform: uppercase;">Quantity:</span>
+                    <input type="number" id="numRounds" value="5" min="1" max="100" style="width: 70px;">
+                </div>
+
+                <div id="gameOutput" style="margin-top: 15px;">
+                    <p style="color: #94a3b8; font-size: 0.8rem; text-align: center; font-style: italic;">Upload a CSV to start the simulation.</p>
+                </div>
+
+                <div id="loader" style="display: none; text-align: center; padding: 10px;">
+                    <span style="font-size: 0.8rem; color: #3b82f6; font-weight: bold;">Generating...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stateNames = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming", "American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"];
+        const stateAreas = {"Alabama": 131171, "Alaska": 1477953, "Arizona": 294207, "Arkansas": 134771, "California": 403466, "Colorado": 268431, "Connecticut": 12542, "Delaware": 5047, "Florida": 138887, "Georgia": 149165, "Hawaii": 16635, "Idaho": 214045, "Illinois": 143793, "Indiana": 92789, "Iowa": 144669, "Kansas": 211754, "Kentucky": 102269, "Louisiana": 111898, "Maine": 79883, "Maryland": 25147, "Massachusetts": 20202, "Michigan": 146435, "Minnesota": 206232, "Mississippi": 121531, "Missouri": 178040, "Montana": 376962, "Nebraska": 198974, "Nevada": 284332, "New Hampshire": 23187, "New Jersey": 19047, "New Mexico": 314161, "New York": 122057, "North Carolina": 125920, "North Dakota": 178711, "Ohio": 105829, "Oklahoma": 177660, "Oregon": 248608, "Pennsylvania": 115883, "Rhode Island": 2678, "South Carolina": 77857, "South Dakota": 196350, "Tennessee": 106798, "Texas": 676587, "Utah": 212818, "Vermont": 23871, "Virginia": 102279, "Washington": 172119, "West Virginia": 62259, "Wisconsin": 140268, "Wyoming": 251470, "American Samoa": 199, "Guam": 544, "Northern Mariana Islands": 464, "Puerto Rico": 8870, "U.S. Virgin Islands": 346};
+        const regionPresets = {
+            midwest: ["Illinois", "Indiana", "Iowa", "Kansas", "Michigan", "Minnesota", "Missouri", "Nebraska", "North Dakota", "Ohio", "South Dakota", "Wisconsin"],
+            west: ["Arizona", "California", "Colorado", "Idaho", "Montana", "Nevada", "New Mexico", "Oregon", "Utah", "Washington", "Wyoming"],
+            south: ["Alabama", "Arkansas", "Florida", "Georgia", "Kentucky", "Louisiana", "Mississippi", "Missouri", "North Carolina", "Oklahoma", "South Carolina", "Tennessee", "Texas", "Virginia", "West Virginia"],
+            new_england: ["Connecticut", "Maine", "Massachusetts", "New Hampshire", "Rhode Island", "Vermont"],
+            mid_atlantic: ["Delaware", "Maryland", "New Jersey", "New York", "Pennsylvania", "Virginia", "West Virginia"],
+            territories: ["American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"]
+        };
+        const territoryUrls = { "American Samoa": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/AmericanSamoa.geojson", "Guam": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/Guam.geojson", "Northern Mariana Islands": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/NMI.geojson", "Puerto Rico": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/PR.geojson", "U.S. Virgin Islands": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/USVI.geojson" };
+
+        let map, csvPoints = [], csvMarkersLayer = L.layerGroup(), gameLayers = L.layerGroup(), stateGeoJsonCache = new Map();
+
+        function init() {
+            map = L.map('map', { zoomControl: true }).setView([39.8283, -98.5795], 4);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }).addTo(map);
+            csvMarkersLayer.addTo(map);
+            gameLayers.addTo(map);
+            
+            populateStateSelector();
+            initResizer();
+            
+            document.getElementById('csvFileInput').addEventListener('change', handleFileUpload);
+            document.getElementById('simulateBtn').addEventListener('click', () => simulateRounds(1));
+            document.getElementById('multiSimulateBtn').addEventListener('click', () => simulateRounds(parseInt(document.getElementById('numRounds').value)));
+            document.getElementById('regionSelector').addEventListener('change', handleRegionSelect);
+            document.getElementById('clearSelectionBtn').addEventListener('click', clearStateSelection);
+            document.getElementById('freqToggle').addEventListener('change', renderCSVMarkers);
+        }
+
+        function initResizer() {
+            const panel = document.getElementById('mainPanel');
+            const resizer = document.getElementById('panelResizer');
+            let isResizing = false;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                e.preventDefault();
+                document.body.style.cursor = 'col-resize';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const newWidth = e.clientX - panel.getBoundingClientRect().left;
+                if (newWidth >= 250 && newWidth <= window.innerWidth * 0.8) {
+                    panel.style.width = `${newWidth}px`;
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    document.body.style.cursor = 'default';
+                }
+            });
+        }
+
+        function togglePanel() {
+            document.getElementById('panelContent').classList.toggle('hidden');
+        }
+
+        function populateStateSelector() {
+            const selector = document.getElementById('stateSelector');
+            stateNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                selector.appendChild(option);
+            });
+        }
+
+        function handleRegionSelect(e) {
+            const region = e.target.value;
+            const states = regionPresets[region] || [];
+            const selector = document.getElementById('stateSelector');
+            for (const option of selector.options) {
+                option.selected = states.includes(option.value);
+            }
+        }
+
+        function clearStateSelection() {
+            const selector = document.getElementById('stateSelector');
+            for (const option of selector.options) option.selected = false;
+            document.getElementById('regionSelector').value = "";
+        }
+
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                header: false,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    const data = results.data;
+                    csvPoints = [];
+                    let startIdx = (isNaN(parseFloat(data[0][0])) || isNaN(parseFloat(data[0][1]))) ? 1 : 0;
+                    const bounds = L.latLngBounds();
+
+                    for (let i = startIdx; i < data.length; i++) {
+                        const lat = parseFloat(data[i][0]);
+                        const lng = parseFloat(data[i][1]);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            csvPoints.push({ 
+                                type: "Feature", 
+                                geometry: { type: "Point", coordinates: [lng, lat] }, 
+                                properties: { hits: 0, id: i } 
+                            });
+                            bounds.extend([lat, lng]);
+                        }
+                    }
+
+                    if (csvPoints.length > 0) {
+                        document.getElementById('simulateBtn').disabled = false;
+                        document.getElementById('multiSimulateBtn').disabled = false;
+                        const status = document.getElementById('csvStatus');
+                        status.textContent = `${csvPoints.length} Points`;
+                        status.style.color = '#10b981';
+                        document.getElementById('gameOutput').innerHTML = `<p style="font-size: 0.8rem; color: #10b981; font-weight: bold; text-align: center;">✓ Dataset loaded successfully.</p>`;
+                        renderCSVMarkers();
+                        map.fitBounds(bounds.pad(0.1));
+                    }
+                }
+            });
+        }
+
+        function renderCSVMarkers() {
+            csvMarkersLayer.clearLayers();
+            const showFreq = document.getElementById('freqToggle').checked;
+
+            csvPoints.forEach(p => {
+                const lat = p.geometry.coordinates[1];
+                const lng = p.geometry.coordinates[0];
+                const hits = p.properties.hits;
+
+                let radius = 4;
+                let color = "#64748b";
+                let fillOpacity = 0.4;
+
+                if (showFreq && hits > 0) {
+                    radius = Math.min(4 + (hits * 1.5), 25);
+                    color = "#2563eb";
+                    fillOpacity = 0.6;
+                }
+
+                L.circleMarker([lat, lng], {
+                    radius: radius,
+                    color: color,
+                    weight: 1,
+                    fillColor: color,
+                    fillOpacity: fillOpacity
+                }).addTo(csvMarkersLayer).bindPopup(`<b>CSV Photo Point</b><br>Hits: ${hits}`);
+            });
+        }
+
+        async function simulateRounds(count) {
+            gameLayers.clearLayers();
+            setLoading(true);
+
+            // MANDATORY RESET: Clear usage frequency hits before starting a new simulation generate
+            csvPoints.forEach(p => p.properties.hits = 0);
+
+            const results = [];
+            
+            for (let i = 0; i < count; i++) {
+                const target = await generateRandomUSPoint();
+                if (!target) continue;
+
+                const nearest = findNearest(target);
+                if (nearest) nearest.properties.hits++;
+
+                const distKm = turf.distance(target, nearest, { units: 'kilometers' });
+                const distMi = distKm * 0.621371;
+                results.push({ target, nearest, distKm: distKm, distMi: distMi, id: i + 1 });
+                drawRound(results[results.length - 1]);
+            }
+
+            renderCSVMarkers();
+            displayStats(results);
+            setLoading(false);
+        }
+
+        function findNearest(target) {
+            let minVal = Infinity, closest = null;
+            csvPoints.forEach(p => {
+                const d = turf.distance(target, p);
+                if (d < minVal) { minVal = d; closest = p; }
+            });
+            return closest;
+        }
+
+        function drawRound(round) {
+            const lat = round.target.geometry.coordinates[1];
+            const lng = round.target.geometry.coordinates[0];
+            const n = [round.nearest.geometry.coordinates[1], round.nearest.geometry.coordinates[0]];
+            const group = L.featureGroup();
+
+            const marker = L.circleMarker([lat, lng], { color: '#ef4444', weight: 2, radius: 5, fillOpacity: 0.8 }).addTo(group);
+            
+            const content = `
+                <div style="font-size:0.85rem">
+                    <b>Round #${round.id}</b><br>
+                    <strong>Coords:</strong> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+                    <strong>Distance:</strong> ${round.distKm.toFixed(2)} km (${round.distMi.toFixed(2)} mi)
+                </div>
+            `;
+            marker.bindPopup(content);
+
+            L.polyline([[lat, lng], n], { color: '#3b82f6', weight: 1.5, dashArray: '4, 4', opacity: 0.7 }).addTo(group);
+            group.addTo(gameLayers);
+        }
+
+        function displayStats(results) {
+            const output = document.getElementById('gameOutput');
+            if (results.length === 0) return;
+            const distsKm = results.map(r => r.distKm);
+            const distsMi = results.map(r => r.distMi);
+            
+            const avgKm = distsKm.reduce((a, b) => a + b, 0) / distsKm.length;
+            const avgMi = distsMi.reduce((a, b) => a + b, 0) / distsMi.length;
+            
+            let best = results[0], worst = results[0];
+            results.forEach(r => {
+                if (r.distKm < best.distKm) best = r;
+                if (r.distKm > worst.distKm) worst = r;
+            });
+
+            let html = `<div class="results-summary">
+                <div class="stat-card">
+                    <span class="stat-label">Average</span>
+                    <div class="stat-value text-blue-600">
+                        ${avgKm.toFixed(2)} km <span class="stat-sub">/ ${avgMi.toFixed(2)} mi</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Best</span>
+                    <div class="stat-value clickable-stat" onclick="jumpTo(${best.target.geometry.coordinates[1]}, ${best.target.geometry.coordinates[0]})">
+                        ${best.distKm.toFixed(2)} km <span class="stat-sub">/ ${best.distMi.toFixed(2)} mi</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Worst</span>
+                    <div class="stat-value clickable-stat" onclick="jumpTo(${worst.target.geometry.coordinates[1]}, ${worst.target.geometry.coordinates[0]})">
+                        ${worst.distKm.toFixed(2)} km <span class="stat-sub">/ ${worst.distMi.toFixed(2)} mi</span>
+                    </div>
+                </div>
+            </div>`;
+            
+            html += `<div style="max-height: 200px; overflow-y: auto; padding-right: 5px;" class="custom-scrollbar">`;
+            results.forEach(r => {
+                html += `<div class="log-row" onclick="jumpTo(${r.target.geometry.coordinates[1]}, ${r.target.geometry.coordinates[0]})">
+                    <span style="color: #64748b; font-weight: bold;">#${r.id}</span>
+                    <span style="font-weight: 700;">${r.distKm.toFixed(2)} km / ${r.distMi.toFixed(2)} mi</span>
+                </div>`;
+            });
+            html += `</div>`;
+            output.innerHTML = html;
+        }
+
+        function jumpTo(lat, lng) { map.setView([lat, lng], 10); }
+
+        async function generateRandomUSPoint() {
+            const sel = Array.from(document.getElementById('stateSelector').selectedOptions).map(o => o.value);
+            const reg = document.getElementById('regionSelector').value;
+            const pool = sel.length > 0 ? sel : (reg ? regionPresets[reg] : stateNames);
+            
+            let totalWeight = 0;
+            const weighted = pool.map(n => {
+                let w = stateAreas[n] || 0;
+                if (n === "Alaska") w /= 5;
+                totalWeight += w;
+                return { n, w };
+            });
+
+            let rand = Math.random() * totalWeight;
+            let targetState = pool[0];
+            for (const item of weighted) {
+                rand -= item.w;
+                if (rand <= 0) { targetState = item.n; break; }
+            }
+            return await findValidPoint(targetState);
+        }
+
+        async function findValidPoint(stateName) {
+            try {
+                const geo = await fetchGeo(stateName);
+                const bbox = turf.bbox(geo);
+                for (let i = 0; i < 50; i++) {
+                    const lng = Math.random() * (bbox[2] - bbox[0]) + bbox[0];
+                    const lat = Math.random() * (bbox[3] - bbox[1]) + bbox[1];
+                    const pt = turf.point([lng, lat]);
+                    if (turf.booleanPointInPolygon(pt, geo)) return pt;
+                }
+            } catch (e) {
+                console.error("Point generation error:", e);
+            }
+            return null;
+        }
+
+        async function fetchGeo(name) {
+            if (stateGeoJsonCache.has(name)) return stateGeoJsonCache.get(name);
+            let url = territoryUrls[name] || `https://raw.githubusercontent.com/glynnbird/usstatesgeojson/refs/heads/master/${name.toLowerCase()}.geojson`;
+            const res = await fetch(url);
+            const d = await res.json();
+            const f = d.type === 'FeatureCollection' ? d.features[0] : (d.type === 'Feature' ? d : turf.feature(d));
+            stateGeoJsonCache.set(name, f);
+            return f;
+        }
+
+        function setLoading(l) {
+            document.getElementById('loader').style.display = l ? 'block' : 'none';
+            document.getElementById('simulateBtn').disabled = l;
+            document.getElementById('multiSimulateBtn').disabled = l;
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
