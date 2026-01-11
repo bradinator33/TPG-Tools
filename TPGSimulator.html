@@ -175,9 +175,15 @@
             <h1 style="margin:0; font-size: 1.1rem; font-weight: 900; color: #1e293b; text-transform: uppercase; letter-spacing: -0.02em;">TPG Simulator</h1>
         </div>
         <div class="nav-controls">
+            <!-- Frequency Visualization Toggle -->
             <div class="toggle-container">
                 <input type="checkbox" id="freqToggle">
                 <label for="freqToggle" style="margin:0; cursor: pointer;">Visualize Frequency</label>
+            </div>
+            <!-- Optimize View Toggle -->
+            <div class="toggle-container" style="background: #f0fdf4; border-color: #bbf7d0; color: #166534;">
+                <input type="checkbox" id="optimizeToggle">
+                <label for="optimizeToggle" style="margin:0; cursor: pointer;">Optimize View</label>
             </div>
             <input type="file" id="csvFileInput" accept=".csv" style="display: none;" />
             <button class="upload-btn" onclick="document.getElementById('csvFileInput').click()">Upload CSV</button>
@@ -264,7 +270,10 @@
             document.getElementById('multiSimulateBtn').addEventListener('click', () => simulateRounds(parseInt(document.getElementById('numRounds').value)));
             document.getElementById('regionSelector').addEventListener('change', handleRegionSelect);
             document.getElementById('clearSelectionBtn').addEventListener('click', clearStateSelection);
+            
+            // Toggle listeners
             document.getElementById('freqToggle').addEventListener('change', renderCSVMarkers);
+            document.getElementById('optimizeToggle').addEventListener('change', renderCSVMarkers);
         }
 
         function initResizer() {
@@ -366,11 +375,16 @@
         function renderCSVMarkers() {
             csvMarkersLayer.clearLayers();
             const showFreq = document.getElementById('freqToggle').checked;
+            const optimize = document.getElementById('optimizeToggle').checked;
 
             csvPoints.forEach(p => {
+                const hits = p.properties.hits;
+                
+                // Optimize Check: If enabled, only show points that have been hit at least once
+                if (optimize && hits === 0) return;
+
                 const lat = p.geometry.coordinates[1];
                 const lng = p.geometry.coordinates[0];
-                const hits = p.properties.hits;
 
                 let radius = 4;
                 let color = "#64748b";
@@ -414,6 +428,7 @@
                 drawRound(results[results.length - 1]);
             }
 
+            // Re-render markers to reflect new hit counts and handle optimization
             renderCSVMarkers();
             displayStats(results);
             setLoading(false);
@@ -555,5 +570,4 @@
         window.onload = init;
     </script>
 </body>
-
 </html>
