@@ -234,6 +234,10 @@
             'Shannon__SD': '46113', 'Shannon__WY': '46113' 
         };
 
+        const SEAT_COORDS_OVERRIDES = {
+            '05041': { lat: 33.6080, lng: -91.2062774 }
+        };
+
         const STATE_DATA = {
             '01': { abbr: 'AL', name: 'Alabama' }, '04': { abbr: 'AZ', name: 'Arizona' },
             '05': { abbr: 'AR', name: 'Arkansas' }, '06': { abbr: 'CA', name: 'California' },
@@ -479,6 +483,10 @@
                         if (match) {
                             countySeatsCache[fips] = { lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
                         }
+                    });
+
+                    Object.keys(SEAT_COORDS_OVERRIDES).forEach(fips => {
+                        countySeatsCache[fips] = SEAT_COORDS_OVERRIDES[fips];
                     });
                 } catch (e) {
                     showMessage("Could not fetch County Seats. Falling back to centroids.", "error");
@@ -750,6 +758,7 @@
 </body>
 
 </html>
+
 
 
 
