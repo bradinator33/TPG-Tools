@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>US County Navigator & Router</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; }
+        
+        #map { height: 650px; width: 100%; border-radius: 0.75rem; }
+
+        label.section-label { 
+            display: block; 
+            font-weight: bold; 
+            font-size: 0.75rem; 
+            color: #475569; 
+            margin-top: 10px; 
+            margin-bottom: 6px; 
+            text-transform: uppercase; 
+            letter-spacing: 0.05em; 
+        }
+        
+        select, input[type="number"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: #fff;
+            color: #1e293b;
+            transition: all 0.2s;
+        }
+        
+        select:focus, input[type="number"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        button.action-btn {
+            padding: 10px 16px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-radius: 6px;
+            transition: all 0.2s;
+            color: white;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+        }
+        button.action-btn:active { transform: scale(0.98); }
+        button.action-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+        .btn-blue { background: #2563eb; }
+        .btn-blue:hover { background: #1d4ed8; }
+        .btn-indigo { background: #4f46e5; }
+        .btn-indigo:hover { background: #4338ca; }
+        .btn-green { background: #10b981; }
+        .btn-green:hover { background: #059669; }
+        .btn-purple { background: #8b5cf6; }
+        .btn-purple:hover { background: #7c3aed; }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #eff6ff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .toggle-container input { cursor: pointer; }
+
+        .stat-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .stat-card:last-child { border-bottom: none; padding-bottom: 0; }
+        .stat-card:first-child { padding-top: 0; }
+        .stat-label { font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+        .stat-value { font-size: 0.9rem; font-weight: 800; color: #0f172a; text-align: right; font-family: monospace; }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.75);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+        }
+        .crosshair-cursor-map { cursor: crosshair !important; }
+        .leaflet-popup-content-wrapper { border-radius: 8px; font-family: sans-serif; }
+        .leaflet-popup-content b { color: #3b82f6; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        <header class="text-center">
+            <h1 class="text-3xl font-black text-slate-800 uppercase tracking-tight">County Router</h1>
+            <p class="text-slate-600 font-medium mt-1">Upload MapChart data to find optimal routes through remaining County Seats.</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-2 gap-8 border border-slate-200">
+            <div class="space-y-5">
+                
+                <div>
+                    <label class="section-label">1. Upload Data</label>
+                    <div class="flex items-center gap-4">
+                        <input type="file" id="fileInput" accept=".txt" style="display: none;" />
+                        <button class="action-btn btn-green" onclick="document.getElementById('fileInput').click()">Upload MapChart TXT</button>
+                        <span id="appStatus" class="text-sm font-bold text-slate-400 uppercase tracking-wider">Awaiting Data</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="section-label" for="stateSelect">2. Target Area</label>
+                    <select id="stateSelect">
+                        <option value="ALL">All Remaining (Lower 48)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="toggle-container w-max" for="daysMode">
+                        <input type="checkbox" id="daysMode">
+                        <span>Enable Days Mode</span>
+                    </label>
+                    
+                    <div id="daysModeSettings" style="display: none; gap: 12px; margin-top: 10px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <div style="flex: 1;">
+                            <label class="section-label" style="margin-top:0;">Max Hours</label>
+                            <input type="number" id="maxDriveHours" min="1" max="24" value="8">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="section-label" style="margin-top:0;">Max Mins</label>
+                            <input type="number" id="maxDriveMins" min="0" max="59" value="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-3 pt-4 border-t border-slate-100">
+                    <button id="setHomeBtn" class="action-btn btn-indigo flex-1">📍 Set Home</button>
+                    <button id="calculateBtn" class="action-btn btn-blue flex-1">Calculate Route</button>
+                    <button id="exportBtn" class="action-btn btn-purple flex-1" style="display: none;">⬇️ Export GPX</button>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+                <h2 class="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest border-b border-slate-200 pb-2">Statistics</h2>
+                <div class="space-y-1">
+                    <div class="stat-card">
+                        <span class="stat-label">Counties Loaded</span>
+                        <div class="stat-value" id="countiesLoaded">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Counties Filled</span>
+                        <div class="stat-value" id="countiesFilled">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label" id="targetLabel">Remaining</span>
+                        <div class="stat-value text-red-600" id="countiesRemaining">0</div>
+                    </div>
+                    <div class="stat-card pt-4 mt-2 border-t border-slate-200">
+                        <span class="stat-label">Route Length</span>
+                        <div class="stat-value text-blue-600" id="routeDistance">0 km</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Est. Time</span>
+                        <div class="stat-value text-blue-600" id="routeTime">0h 0m</div>
+                    </div>
+                    <div class="stat-card" id="daysStatContainer" style="display: none;">
+                        <span class="stat-label">Est. Days</span>
+                        <div class="stat-value text-purple-600 text-lg" id="routeDaysStat">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="map" class="shadow-xl border-4 border-white"></div>
+        <div id="statusMessage" class="hidden fixed bottom-6 right-6 z-[9999] p-4 rounded-lg shadow-xl text-sm font-bold transition-all max-w-sm"></div>
+    </div>
+
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="animate-spin rounded-full h-14 w-14 border-4 border-slate-600 border-t-blue-500 mb-4"></div>
+        <p id="loadingText" class="mb-3 font-bold tracking-wide">Processing Map Data...</p>
+        <div class="w-64 bg-slate-800 rounded-full h-3 hidden overflow-hidden" id="progressContainer">
+            <div class="bg-blue-500 h-full transition-all duration-300 relative" id="progressBar" style="width: 0%">
+                <div class="absolute top-0 left-0 w-full h-full bg-white opacity-20" style="background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MAPCHART_US_COUNTIES_URL = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json";
+        let map, countyLayer, routeLayer;
+        let allCounties = [];
+        let filledCountyFips = new Set();
+        let remainingCounties = [];
+        let mapchartIdToFips = {};
+        let fallbackMapping = {};
+        let countySeatsCache = null; 
+        let homeMarker = null;
+        let isSettingHome = false;
+        let fullRouteCoordinates = []; 
+
+        const MAPCHART_FIPS_OVERRIDES = {
+            'Baltimore_County__MD': '24005', 'Baltimore_City__MD': '24510',
+            'St__Louis_Co___MO': '29189', 'St__Louis__MO': '29510',
+            'Fairfax_Co___VA': '51059', 'Fairfax__VA': '51600',
+            'Franklin_Co___VA': '51067', 'Franklin__VA': '51620',
+            'Richmond_Co___VA': '51159', 'Richmond__VA': '51760',
+            'Roanoke_Co___VA': '51161', 'Roanoke__VA': '51770',
+            'Bedford_Co___VA': '51019', 'Bedford__VA': '51019', 
+            'Washington__DC': '11001', 'Sainte_Genevieve__MO': '29186',
+            'Dona_Ana__NM': '35013', 'Oglala_Lakota__SD': '46113', 
+            'Shannon__SD': '46113', 'Shannon__WY': '46113' 
+        };
+
+        const STATE_DATA = {
+            '01': { abbr: 'AL', name: 'Alabama' }, '04': { abbr: 'AZ', name: 'Arizona' },
+            '05': { abbr: 'AR', name: 'Arkansas' }, '06': { abbr: 'CA', name: 'California' },
+            '08': { abbr: 'CO', name: 'Colorado' }, '09': { abbr: 'CT', name: 'Connecticut' },
+            '10': { abbr: 'DE', name: 'Delaware' }, '11': { abbr: 'DC', name: 'District of Columbia' },
+            '12': { abbr: 'FL', name: 'Florida' }, '13': { abbr: 'GA', name: 'Georgia' },
+            '16': { abbr: 'ID', name: 'Idaho' }, '17': { abbr: 'IL', name: 'Illinois' },
+            '18': { abbr: 'IN', name: 'Indiana' }, '19': { abbr: 'IA', name: 'Iowa' },
+            '20': { abbr: 'KS', name: 'Kansas' }, '21': { abbr: 'KY', name: 'Kentucky' },
+            '22': { abbr: 'LA', name: 'Louisiana' }, '23': { abbr: 'ME', name: 'Maine' },
+            '24': { abbr: 'MD', name: 'Maryland' }, '25': { abbr: 'MA', name: 'Massachusetts' },
+            '26': { abbr: 'MI', name: 'Michigan' }, '27': { abbr: 'MN', name: 'Minnesota' },
+            '28': { abbr: 'MS', name: 'Mississippi' }, '29': { abbr: 'MO', name: 'Missouri' },
+            '30': { abbr: 'MT', name: 'Montana' }, '31': { abbr: 'NE', name: 'Nebraska' },
+            '32': { abbr: 'NV', name: 'Nevada' }, '33': { abbr: 'NH', name: 'New Hampshire' },
+            '34': { abbr: 'NJ', name: 'New Jersey' }, '35': { abbr: 'NM', name: 'New Mexico' },
+            '36': { abbr: 'NY', name: 'New York' }, '37': { abbr: 'NC', name: 'North Carolina' },
+            '38': { abbr: 'ND', name: 'North Dakota' }, '39': { abbr: 'OH', name: 'Ohio' },
+            '40': { abbr: 'OK', name: 'Oklahoma' }, '41': { abbr: 'OR', name: 'Oregon' },
+            '42': { abbr: 'PA', name: 'Pennsylvania' }, '44': { abbr: 'RI', name: 'Rhode Island' },
+            '45': { abbr: 'SC', name: 'South Carolina' }, '46': { abbr: 'SD', name: 'South Dakota' },
+            '47': { abbr: 'TN', name: 'Tennessee' }, '48': { abbr: 'TX', name: 'Texas' },
+            '49': { abbr: 'UT', name: 'Utah' }, '50': { abbr: 'VT', name: 'Vermont' },
+            '51': { abbr: 'VA', name: 'Virginia' }, '53': { abbr: 'WA', name: 'Washington' },
+            '54': { abbr: 'WV', name: 'West Virginia' }, '55': { abbr: 'WI', name: 'Wisconsin' },
+            '56': { abbr: 'WY', name: 'Wyoming' }
+        };
+
+        document.getElementById('daysMode').addEventListener('change', function(e) {
+            document.getElementById('daysModeSettings').style.display = e.target.checked ? 'flex' : 'none';
+            document.getElementById('daysStatContainer').style.display = e.target.checked ? 'flex' : 'none';
+        });
+
+        function handleMapClickForHome(latlng) {
+            if (isSettingHome) {
+                if (homeMarker) map.removeLayer(homeMarker);
+                homeMarker = L.marker(latlng).addTo(map)
+                    .bindPopup("<b>Home Point</b><br>Route will start and end here.")
+                    .openPopup();
+                isSettingHome = false;
+                const btn = document.getElementById('setHomeBtn');
+                btn.innerHTML = "📍 Home Set (Click to Change)";
+                btn.classList.replace('btn-indigo', 'btn-green');
+                document.getElementById('map').classList.remove('crosshair-cursor-map');
+            }
+        }
+
+        function initMap() {
+            map = L.map('map').setView([39.8283, -98.5795], 4);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+            routeLayer = L.layerGroup().addTo(map);
+            populateStateDropdown();
+            loadCountyData();
+            map.on('click', function(e) {
+                handleMapClickForHome(e.latlng);
+            });
+        }
+
+        document.getElementById('setHomeBtn').addEventListener('click', () => {
+            isSettingHome = !isSettingHome;
+            const mapEl = document.getElementById('map');
+            if (isSettingHome) {
+                mapEl.classList.add('crosshair-cursor-map');
+                showMessage("Click anywhere on the map to set your start/end point.", "success");
+            } else {
+                mapEl.classList.remove('crosshair-cursor-map');
+            }
+        });
+
+        function populateStateDropdown() {
+            const select = document.getElementById('stateSelect');
+            const states = Object.entries(STATE_DATA).map(([fips, data]) => ({ fips, name: data.name }));
+            states.sort((a, b) => a.name.localeCompare(b.name));
+            states.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state.fips;
+                option.textContent = state.name;
+                select.appendChild(option);
+            });
+            select.addEventListener('change', updateStats);
+        }
+
+        async function loadCountyData() {
+            showLoading("Downloading Boundaries...");
+            try {
+                const response = await fetch(MAPCHART_US_COUNTIES_URL);
+                const data = await response.json();
+                const lower48 = data.features.filter(f => {
+                    const stateFips = f.id.substring(0, 2);
+                    return !['02', '15', '60', '66', '69', '72', '78'].includes(stateFips);
+                });
+                allCounties = lower48;
+                allCounties.forEach(f => {
+                    let stateInfo = STATE_DATA[f.properties.STATE];
+                    if (stateInfo) {
+                        let stateAbbr = stateInfo.abbr;
+                        let name = f.properties.NAME;
+                        let normalizedName = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                        let cleanName = normalizedName.replace(/'/g, ''); 
+                        let exactKey = cleanName.replace(/\./g, '_').replace(/ /g, '_') + '__' + stateAbbr;
+                        mapchartIdToFips[exactKey] = f.id;
+                        let normKey = (normalizedName + stateAbbr).toLowerCase().replace(/[^a-z0-9]/g, '');
+                        fallbackMapping[normKey] = f.id;
+                    }
+                });
+                renderCounties();
+                updateStats();
+            } catch (error) {
+                showMessage("Failed to load map data.", "error");
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function renderCounties() {
+            if (countyLayer) map.removeLayer(countyLayer);
+            countyLayer = L.geoJson(allCounties, {
+                style: function(feature) {
+                    return {
+                        fillColor: filledCountyFips.has(feature.id) ? '#cbd5e1' : '#ffffff',
+                        weight: 1,
+                        opacity: 1,
+                        color: '#94a3b8',
+                        fillOpacity: filledCountyFips.has(feature.id) ? 0.8 : 0.4
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    const name = feature.properties.NAME || "Unknown County";
+                    layer.bindPopup(`<b>${name}</b><br>FIPS: ${feature.id}`);
+                    layer.on('click', function(e) {
+                        if (isSettingHome) {
+                            handleMapClickForHome(e.latlng);
+                        }
+                    });
+                }
+            }).addTo(map);
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                try {
+                    const jsonMatch = content.match(/\{[\s\S]*\}/);
+                    let unmapped = [];
+                    if (jsonMatch) {
+                        const data = JSON.parse(jsonMatch[0]);
+                        filledCountyFips.clear();
+                        if (data.groups) {
+                            Object.values(data.groups).forEach(group => {
+                                if (group.paths) {
+                                    group.paths.forEach(path => {
+                                        let normKey = path.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                        if (MAPCHART_FIPS_OVERRIDES[path]) {
+                                            filledCountyFips.add(MAPCHART_FIPS_OVERRIDES[path]);
+                                        } else if (mapchartIdToFips[path]) {
+                                            filledCountyFips.add(mapchartIdToFips[path]);
+                                        } else if (fallbackMapping[normKey]) {
+                                            filledCountyFips.add(fallbackMapping[normKey]);
+                                        } else if (/^\d+$/.test(path)) {
+                                            filledCountyFips.add(path.padStart(5, '0'));
+                                        } else {
+                                            unmapped.push(path);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    }
+                    if (filledCountyFips.has('51019')) {
+                        filledCountyFips.add('51515');
+                    }
+                    renderCounties();
+                    updateStats();
+                    if (unmapped.length > 0) {
+                        showMessage(`Imported, but failed to map: ${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? '...' : ''}`, "error");
+                        document.getElementById('appStatus').innerText = "Partial Data";
+                        document.getElementById('appStatus').style.color = "#f59e0b";
+                    } else {
+                        showMessage("MapChart data imported successfully!", "success");
+                        document.getElementById('appStatus').innerText = "Data Loaded";
+                        document.getElementById('appStatus').style.color = "#10b981";
+                    }
+                } catch (err) {
+                    showMessage("Error parsing MapChart file.", "error");
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function updateStats() {
+            document.getElementById('countiesLoaded').innerText = allCounties.length;
+            document.getElementById('countiesFilled').innerText = filledCountyFips.size;
+            const selectedState = document.getElementById('stateSelect').value;
+            if (selectedState === 'ALL') {
+                remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.id !== '51515');
+                document.getElementById('targetLabel').innerText = "Remaining (Lower 48)";
+            } else {
+                remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.properties.STATE === selectedState && f.id !== '51515');
+                document.getElementById('targetLabel').innerText = `Remaining (${STATE_DATA[selectedState].abbr})`;
+            }
+            document.getElementById('countiesRemaining').innerText = remainingCounties.length;
+        }
+
+        function calculateHaversineDistance(a, b) {
+            const R = 6371; 
+            const dLat = (b.lat - a.lat) * Math.PI / 180;
+            const dLon = (b.lng - a.lng) * Math.PI / 180;
+            const lat1 = a.lat * Math.PI / 180;
+            const lat2 = b.lat * Math.PI / 180;
+            const x = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.sin(dLon/2) * Math.sin(dLon/2) * Math.cos(lat1) * Math.cos(lat2);
+            return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+        }
+
+        document.getElementById('calculateBtn').addEventListener('click', processRouting);
+
+        async function processRouting() {
+            if (remainingCounties.length < 1 && !homeMarker) {
+                showMessage("No destinations available to route.", "error");
+                return;
+            }
+            if (remainingCounties.length > 500) {
+                if (!confirm(`You are trying to route through ${remainingCounties.length} counties. This will take significant time. Continue?`)) return;
+            }
+            document.getElementById('exportBtn').style.display = 'none';
+
+            if (!countySeatsCache) {
+                showLoading("Fetching County Seats...", 0);
+                const query = `SELECT ?fips ?coords WHERE { ?county wdt:P882 ?fips; wdt:P36 ?seat. ?seat wdt:P625 ?coords. }`;
+                const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}&format=json`;
+                try {
+                    const response = await fetch(url, { headers: { 'Accept': 'application/sparql-results+json' } });
+                    const data = await response.json();
+                    countySeatsCache = {};
+                    data.results.bindings.forEach(b => {
+                        const fips = b.fips.value;
+                        const coords = b.coords.value; 
+                        const match = coords.match(/Point\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)/); 
+                        if (match) {
+                            countySeatsCache[fips] = { lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
+                        }
+                    });
+                } catch (e) {
+                    showMessage("Could not fetch County Seats. Falling back to centroids.", "error");
+                    countySeatsCache = {}; 
+                }
+            }
+
+            showLoading("Establishing path...", 0);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            routeLayer.clearLayers();
+            fullRouteCoordinates = [];
+
+            try {
+                let unvisited = remainingCounties.map(f => {
+                    let seat = null;
+                    if (countySeatsCache && countySeatsCache[f.id]) {
+                        seat = countySeatsCache[f.id];
+                    }
+                    const center = L.geoJSON(f).getBounds().getCenter();
+                    return {
+                        id: f.id,
+                        lng: seat ? seat.lng : center.lng,
+                        lat: seat ? seat.lat : center.lat
+                    };
+                });
+
+                let sortedWaypoints = [];
+                let currentActualCoord;
+
+                if (homeMarker) {
+                    currentActualCoord = { lng: homeMarker.getLatLng().lng, lat: homeMarker.getLatLng().lat };
+                } else if (unvisited.length > 0) {
+                    let start = unvisited.shift();
+                    currentActualCoord = { lng: start.lng, lat: start.lat };
+                }
+                
+                if (currentActualCoord) sortedWaypoints.push(currentActualCoord);
+
+                while(unvisited.length > 0) {
+                    let closestIdx = 0;
+                    let minDist = Infinity;
+                    for(let i=0; i<unvisited.length; i++) {
+                        const d = Math.sqrt(Math.pow(currentActualCoord.lat - unvisited[i].lat, 2) + Math.pow(currentActualCoord.lng - unvisited[i].lng, 2));
+                        if (d < minDist) {
+                            minDist = d;
+                            closestIdx = i;
+                        }
+                    }
+                    let next = unvisited.splice(closestIdx, 1)[0];
+                    currentActualCoord = { lng: next.lng, lat: next.lat };
+                    sortedWaypoints.push(currentActualCoord);
+                }
+
+                if (homeMarker && sortedWaypoints.length > 1) {
+                    sortedWaypoints.push({ lng: homeMarker.getLatLng().lng, lat: homeMarker.getLatLng().lat });
+                }
+
+                if (sortedWaypoints.length > 3) {
+                    showLoading("Optimizing route...", 0);
+                    await new Promise(r => setTimeout(r, 50));
+                    let improvement = true;
+                    let iter = 0;
+                    let maxIter = 100; 
+                    const endBound = homeMarker ? sortedWaypoints.length - 2 : sortedWaypoints.length - 1;
+                    
+                    while (improvement && iter < maxIter) {
+                        improvement = false;
+                        for (let i = 1; i < endBound; i++) {
+                            for (let j = i + 1; j <= endBound; j++) {
+                                let d1 = calculateHaversineDistance(sortedWaypoints[i - 1], sortedWaypoints[i]);
+                                let d2 = (j + 1 < sortedWaypoints.length) ? calculateHaversineDistance(sortedWaypoints[j], sortedWaypoints[j + 1]) : 0;
+                                let d3 = calculateHaversineDistance(sortedWaypoints[i - 1], sortedWaypoints[j]);
+                                let d4 = (j + 1 < sortedWaypoints.length) ? calculateHaversineDistance(sortedWaypoints[i], sortedWaypoints[j + 1]) : 0;
+                                if (d1 + d2 > d3 + d4) {
+                                    let reversedSegment = sortedWaypoints.slice(i, j + 1).reverse();
+                                    sortedWaypoints.splice(i, reversedSegment.length, ...reversedSegment);
+                                    improvement = true;
+                                }
+                            }
+                        }
+                        iter++;
+                        if (iter % 5 === 0 || !improvement) {
+                            const progressPercent = Math.round((iter / maxIter) * 100);
+                            showLoading(`Untangling paths (${iter}/${maxIter})...`, progressPercent);
+                            await new Promise(r => setTimeout(r, 10));
+                        }
+                    }
+                }
+
+                let routeMarkers = [];
+                sortedWaypoints.forEach((wp, index) => {
+                    const progressRatio = sortedWaypoints.length > 1 ? index / (sortedWaypoints.length - 1) : 1;
+                    const lightness = 20 + (progressRatio * 65); 
+                    const markerColor = `hsl(0, 100%, ${lightness}%)`;
+                    let marker = L.circleMarker([wp.lat, wp.lng], {
+                        radius: 5,
+                        color: '#ffffff',
+                        weight: 2,
+                        fillColor: markerColor, 
+                        fillOpacity: 1
+                    }).addTo(routeLayer)
+                      .bindPopup(`<b>Stop ${index + 1}</b><br>Lat: ${wp.lat.toFixed(4)}<br>Lng: ${wp.lng.toFixed(4)}`);
+                    routeMarkers.push(marker);
+                });
+
+                let totalDistance = 0;
+                let totalDurationSeconds = 0;
+                const batchSize = 50;
+                const totalBatches = Math.ceil(sortedWaypoints.length / batchSize);
+                let currentLegGlobalIndex = 0;
+                
+                const isDaysMode = document.getElementById('daysMode').checked;
+                let maxHours = parseInt(document.getElementById('maxDriveHours').value) || 0;
+                if (maxHours > 24) maxHours = 24; 
+                const maxDaySeconds = (maxHours * 3600) + ((parseInt(document.getElementById('maxDriveMins').value) || 0) * 60);
+                let currentDaySeconds = 0;
+                let dayCounter = 1;
+
+                for (let i = 0; i < sortedWaypoints.length - 1; i += batchSize) {
+                    const batchNum = Math.floor(i / batchSize) + 1;
+                    const percent = (batchNum / totalBatches) * 100;
+                    showLoading(`Fetching navigation data (${batchNum}/${totalBatches})...`, percent);
+
+                    const batch = sortedWaypoints.slice(i, i + batchSize + 1);
+                    const coordsString = batch.map(w => `${w.lng},${w.lat}`).join(';');
+                    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson&steps=true`;
+                    const response = await fetch(osrmUrl);
+                    const data = await response.json();
+
+                    if (data.code === 'Ok') {
+                        const route = data.routes[0];
+                        if (route.legs) {
+                            route.legs.forEach(leg => {
+                                let legColor;
+                                if (isDaysMode && maxDaySeconds > 0) {
+                                    if (currentDaySeconds + leg.duration > maxDaySeconds) {
+                                        let sleepNodeIndex = currentLegGlobalIndex;
+                                        if (sleepNodeIndex > 0 && routeMarkers[sleepNodeIndex]) {
+                                            routeMarkers[sleepNodeIndex].setStyle({ fillColor: '#1e293b', radius: 8, color: '#ffffff', weight: 3 }); 
+                                            let existingPopup = routeMarkers[sleepNodeIndex].getPopup().getContent();
+                                            if (!existingPopup.includes('End of Day')) {
+                                                routeMarkers[sleepNodeIndex].setPopupContent(existingPopup.replace('</b>', ` (End of Day ${dayCounter}) 🛏️</b>`));
+                                            }
+                                            routeMarkers[sleepNodeIndex].bringToFront();
+                                            routeMarkers[sleepNodeIndex].isSleepNode = true;
+                                        }
+                                        dayCounter++;
+                                        currentDaySeconds = leg.duration; 
+                                    } else {
+                                        currentDaySeconds += leg.duration;
+                                    }
+                                    const hue = (dayCounter * 137.5) % 360;
+                                    legColor = `hsl(${hue}, 85%, 45%)`;
+                                    if (routeMarkers[currentLegGlobalIndex] && !routeMarkers[currentLegGlobalIndex].isSleepNode) {
+                                        routeMarkers[currentLegGlobalIndex].setStyle({ fillColor: legColor });
+                                    }
+                                    if (currentLegGlobalIndex === sortedWaypoints.length - 2 && routeMarkers[currentLegGlobalIndex + 1] && !routeMarkers[currentLegGlobalIndex + 1].isSleepNode) {
+                                        routeMarkers[currentLegGlobalIndex + 1].setStyle({ fillColor: legColor });
+                                    }
+                                } else {
+                                    const totalLegs = sortedWaypoints.length - 1;
+                                    const progressRatio = totalLegs > 0 ? currentLegGlobalIndex / totalLegs : 1;
+                                    const lightness = 20 + (progressRatio * 65);
+                                    legColor = `hsl(0, 100%, ${lightness}%)`;
+                                }
+
+                                let legCoords = [];
+                                if (leg.steps) {
+                                    leg.steps.forEach(step => {
+                                        if (step.geometry && step.geometry.coordinates) {
+                                            if (legCoords.length > 0) {
+                                                legCoords.push(...step.geometry.coordinates.slice(1));
+                                            } else {
+                                                legCoords.push(...step.geometry.coordinates);
+                                            }
+                                        }
+                                    });
+                                }
+                                if (legCoords.length > 0) {
+                                    L.geoJSON({
+                                        type: "Feature",
+                                        geometry: { type: "LineString", coordinates: legCoords }
+                                    }, {
+                                        style: { color: legColor, weight: 5, opacity: 0.9 }
+                                    }).addTo(routeLayer);
+                                    fullRouteCoordinates = fullRouteCoordinates.concat(legCoords);
+                                }
+                                totalDistance += leg.distance;
+                                totalDurationSeconds += leg.duration;
+                                currentLegGlobalIndex++;
+                            });
+                        }
+                    }
+                    await new Promise(r => setTimeout(r, 200));
+                }
+
+                document.getElementById('routeDistance').innerText = `${(totalDistance / 1000).toFixed(2)} km`;
+                const hours = Math.floor(totalDurationSeconds / 3600);
+                const minutes = Math.floor((totalDurationSeconds % 3600) / 60);
+                document.getElementById('routeTime').innerText = `${hours}h ${minutes}m`;
+                
+                if (isDaysMode && maxDaySeconds > 0) {
+                    document.getElementById('routeDaysStat').innerText = dayCounter;
+                }
+
+                showMessage("Route calculated successfully!", "success");
+                document.getElementById('exportBtn').style.display = 'inline-flex';
+                document.getElementById('appStatus').innerText = "Route Complete";
+                document.getElementById('appStatus').style.color = "#8b5cf6";
+                const bounds = L.latLngBounds(sortedWaypoints.map(w => [w.lat, w.lng]));
+                map.fitBounds(bounds);
+
+            } catch (err) {
+                showMessage("Routing failed. API limits might have been exceeded.", "error");
+            } finally {
+                hideLoading();
+            }
+        }
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            if (fullRouteCoordinates.length === 0) {
+                showMessage("No route calculated yet.", "error");
+                return;
+            }
+            let gpxData = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="US County Route Optimizer">\n    <trk>\n        <name>County Navigator Route</name>\n        <trkseg>\n`;
+            fullRouteCoordinates.forEach(coord => {
+                gpxData += `            <trkpt lat="${coord[1]}" lon="${coord[0]}"></trkpt>\n`;
+            });
+            gpxData += `        </trkseg>\n    </trk>\n</gpx>`;
+            const blob = new Blob([gpxData], { type: 'application/gpx+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `County_Route_${new Date().toISOString().split('T')[0]}.gpx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showMessage("GPX Route exported!", "success");
+        });
+
+        function showLoading(text, progress = null) {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+            document.getElementById('loadingText').innerText = text;
+            const pContainer = document.getElementById('progressContainer');
+            const pBar = document.getElementById('progressBar');
+            if (progress !== null && pContainer) {
+                pContainer.classList.remove('hidden');
+                pBar.style.width = `${progress}%`;
+            } else if (pContainer) {
+                pContainer.classList.add('hidden');
+            }
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showMessage(text, type) {
+            const el = document.getElementById('statusMessage');
+            el.innerText = text;
+            el.className = `block fixed bottom-6 right-6 z-[9999] p-4 rounded-lg shadow-xl text-sm font-bold transition-all max-w-sm ${type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 5000);
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
