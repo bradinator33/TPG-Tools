@@ -40,6 +40,7 @@
             border-color: #3b82f6;
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
         }
+        select:disabled { background: #f1f5f9; cursor: not-allowed; opacity: 0.7; }
 
         button.action-btn {
             padding: 10px 16px;
@@ -109,6 +110,13 @@
         .crosshair-cursor-map { cursor: crosshair !important; }
         .leaflet-popup-content-wrapper { border-radius: 8px; font-family: sans-serif; }
         .leaflet-popup-content b { color: #3b82f6; }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .drag-over { border-color: #3b82f6 !important; background-color: #eff6ff; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen p-4 md:p-8">
@@ -119,7 +127,7 @@
             <p class="text-slate-600 font-medium mt-1">Upload MapChart data, pick a state or the whole US, choose your home/starting location, and then calculate it!.</p>
         </header>
 
-        <div class="bg-white p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-2 gap-8 border border-slate-200">
+        <div class="bg-white p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-2 gap-8 border border-slate-200 items-start">
             <div class="space-y-5">
                 
                 <div>
@@ -132,7 +140,18 @@
                 </div>
 
                 <div>
-                    <label class="section-label" for="stateSelect">2. Target Area</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="section-label" for="stateSelect" style="margin: 0;">2. Target Area</label>
+                        <div class="flex items-center gap-2">
+                            <button id="clearCustomBtn" class="hidden text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded border border-red-200 transition-colors cursor-pointer">
+                                CLEAR
+                            </button>
+                            <label class="flex items-center gap-1.5 text-xs font-bold text-amber-600 cursor-pointer bg-amber-50 px-2 py-1 rounded border border-amber-200 transition-colors hover:bg-amber-100">
+                                <input type="checkbox" id="customModeCheck" class="cursor-pointer accent-amber-600 w-3 h-3">
+                                CUSTOM SELECT
+                            </label>
+                        </div>
+                    </div>
                     <select id="stateSelect">
                         <option value="ALL">All Remaining (Lower 48)</option>
                     </select>
@@ -158,8 +177,30 @@
 
                 <div class="flex flex-wrap gap-3 pt-4 border-t border-slate-100">
                     <button id="setHomeBtn" class="action-btn btn-indigo flex-1">Set Home</button>
-                    <button id="calculateBtn" class="action-btn btn-blue flex-1">Calculate Route</button>
+                    <button id="calculateBtn" class="action-btn btn-blue flex-1">Fast Route</button>
                     <button id="exportBtn" class="action-btn btn-purple flex-1" style="display: none;">Export GPX</button>
+                </div>
+                <div class="mt-2">
+                    <button id="calcBestBtn" class="action-btn bg-red-600 hover:bg-red-700 w-full">Best Possible Route (Slow)</button>
+                </div>
+
+                <div class="mt-4 border-t border-slate-100 pt-4">
+                    <label class="toggle-container w-max" for="enableEditorCheck">
+                        <input type="checkbox" id="enableEditorCheck">
+                        <span>Enable Route Editor</span>
+                    </label>
+                </div>
+
+                <!-- Route Editor -->
+                <div id="routeEditorContainer" class="hidden bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-sm">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
+                        Route Editor
+                        <span class="text-xs text-slate-400 normal-case font-normal">(Drag to reorder)</span>
+                    </h3>
+                    <ul id="routeList" class="space-y-1.5 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                        <!-- Populated by JS -->
+                    </ul>
+                    <button id="applyRouteBtn" class="action-btn btn-indigo w-full mt-3">Recalculate Custom Order</button>
                 </div>
             </div>
 
@@ -213,12 +254,16 @@
         let map, countyLayer, routeLayer;
         let allCounties = [];
         let filledCountyFips = new Set();
+        let customCountyFips = new Set(); // For custom select mode
         let remainingCounties = [];
         let mapchartIdToFips = {};
         let fallbackMapping = {};
         let countySeatsCache = null; 
         let homeMarker = null;
         let isSettingHome = false;
+        
+        // Active Route State
+        let currentWaypoints = []; 
         let fullRouteCoordinates = []; 
 
         const MAPCHART_FIPS_OVERRIDES = {
@@ -270,6 +315,55 @@
             document.getElementById('daysModeSettings').style.display = e.target.checked ? 'flex' : 'none';
             document.getElementById('daysStatContainer').style.display = e.target.checked ? 'flex' : 'none';
         });
+
+        document.getElementById('customModeCheck').addEventListener('change', function(e) {
+            const isChecked = e.target.checked;
+            document.getElementById('stateSelect').disabled = isChecked;
+            
+            const clearBtn = document.getElementById('clearCustomBtn');
+            if (isChecked) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+            
+            updateStats();
+            if (countyLayer) {
+                countyLayer.eachLayer(layer => layer.setStyle(getCountyStyle(layer.feature)));
+            }
+        });
+
+        document.getElementById('clearCustomBtn').addEventListener('click', function() {
+            customCountyFips.clear();
+            updateStats();
+            if (countyLayer) {
+                countyLayer.eachLayer(layer => layer.setStyle(getCountyStyle(layer.feature)));
+            }
+        });
+
+        document.getElementById('enableEditorCheck').addEventListener('change', function(e) {
+            const editor = document.getElementById('routeEditorContainer');
+            if (e.target.checked && currentWaypoints && currentWaypoints.length > 0) {
+                editor.classList.remove('hidden');
+            } else {
+                editor.classList.add('hidden');
+            }
+        });
+
+        function getCountyStyle(feature) {
+            const isCustomMode = document.getElementById('customModeCheck').checked;
+            
+            if (isCustomMode && customCountyFips.has(feature.id)) {
+                return { fillColor: '#f59e0b', weight: 2, opacity: 1, color: '#b45309', fillOpacity: 0.6 }; // Amber for custom target
+            }
+            
+            const isFilled = filledCountyFips.has(feature.id);
+            return {
+                fillColor: isFilled ? '#cbd5e1' : '#ffffff',
+                weight: 1, opacity: 1, color: '#94a3b8',
+                fillOpacity: isFilled ? 0.8 : 0.4
+            };
+        }
 
         function handleMapClickForHome(latlng) {
             if (isSettingHome) {
@@ -338,7 +432,7 @@
                         let stateAbbr = stateInfo.abbr;
                         let name = f.properties.NAME;
                         let normalizedName = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                        let cleanName = normalizedName.replace(/'/g, ''); 
+                        let cleanName = normalizedName.replace(/'/g, '');
                         let exactKey = cleanName.replace(/\./g, '_').replace(/ /g, '_') + '__' + stateAbbr;
                         mapchartIdToFips[exactKey] = f.id;
                         let normKey = (normalizedName + stateAbbr).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -358,20 +452,23 @@
             if (countyLayer) map.removeLayer(countyLayer);
             countyLayer = L.geoJson(allCounties, {
                 style: function(feature) {
-                    return {
-                        fillColor: filledCountyFips.has(feature.id) ? '#cbd5e1' : '#ffffff',
-                        weight: 1,
-                        opacity: 1,
-                        color: '#94a3b8',
-                        fillOpacity: filledCountyFips.has(feature.id) ? 0.8 : 0.4
-                    };
+                    return getCountyStyle(feature);
                 },
                 onEachFeature: function(feature, layer) {
                     const name = feature.properties.NAME || "Unknown County";
                     layer.bindPopup(`<b>${name}</b><br>FIPS: ${feature.id}`);
+                    
                     layer.on('click', function(e) {
                         if (isSettingHome) {
                             handleMapClickForHome(e.latlng);
+                        } else if (document.getElementById('customModeCheck').checked) {
+                            if (customCountyFips.has(feature.id)) {
+                                customCountyFips.delete(feature.id);
+                            } else {
+                                customCountyFips.add(feature.id);
+                            }
+                            layer.setStyle(getCountyStyle(feature));
+                            updateStats();
                         }
                     });
                 }
@@ -435,36 +532,245 @@
         function updateStats() {
             document.getElementById('countiesLoaded').innerText = allCounties.length;
             document.getElementById('countiesFilled').innerText = filledCountyFips.size;
-            const selectedState = document.getElementById('stateSelect').value;
-            if (selectedState === 'ALL') {
-                remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.id !== '51515');
-                document.getElementById('targetLabel').innerText = "Remaining (Lower 48)";
+            
+            const isCustomMode = document.getElementById('customModeCheck').checked;
+            
+            if (isCustomMode) {
+                remainingCounties = allCounties.filter(f => customCountyFips.has(f.id));
+                document.getElementById('targetLabel').innerText = "Custom Selected";
             } else {
-                remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.properties.STATE === selectedState && f.id !== '51515');
-                document.getElementById('targetLabel').innerText = `Remaining (${STATE_DATA[selectedState].abbr})`;
+                const selectedState = document.getElementById('stateSelect').value;
+                if (selectedState === 'ALL') {
+                    remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.id !== '51515');
+                    document.getElementById('targetLabel').innerText = "Remaining (Lower 48)";
+                } else {
+                    remainingCounties = allCounties.filter(f => !filledCountyFips.has(f.id) && f.properties.STATE === selectedState && f.id !== '51515');
+                    document.getElementById('targetLabel').innerText = `Remaining (${STATE_DATA[selectedState].abbr})`;
+                }
             }
             document.getElementById('countiesRemaining').innerText = remainingCounties.length;
         }
 
-        function calculateHaversineDistance(a, b) {
-            const R = 6371; 
-            const dLat = (b.lat - a.lat) * Math.PI / 180;
-            const dLon = (b.lng - a.lng) * Math.PI / 180;
-            const lat1 = a.lat * Math.PI / 180;
-            const lat2 = b.lat * Math.PI / 180;
-            const x = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.sin(dLon/2) * Math.sin(dLon/2) * Math.cos(lat1) * Math.cos(lat2);
-            return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
-        }
-
-        document.getElementById('calculateBtn').addEventListener('click', processRouting);
-
-        async function processRouting() {
-            if (remainingCounties.length < 1 && !homeMarker) {
-                showMessage("No destinations available to route.", "error");
-                return;
+        // --- Drag and Drop Route Editor ---
+        let draggedItem = null;
+        function renderRouteEditor(waypoints) {
+            const list = document.getElementById('routeList');
+            list.innerHTML = '';
+            
+            waypoints.forEach((wp, index) => {
+                const li = document.createElement('li');
+                li.draggable = true;
+                li.className = 'p-2.5 bg-white border border-slate-200 rounded cursor-grab active:cursor-grabbing flex items-center justify-between text-sm shadow-sm transition-colors hover:bg-slate-50';
+                li.dataset.index = index;
+                
+                li.innerHTML = `
+                    <div class="flex items-center truncate gap-2">
+                        <span class="font-bold text-slate-400 w-5 text-right">${index + 1}.</span>
+                        <span class="truncate font-medium text-slate-700">${wp.name}</span>
+                    </div>
+                    <span class="text-slate-300 ml-2">≡</span>
+                `;
+                
+                li.addEventListener('dragstart', function(e) {
+                    draggedItem = this;
+                    setTimeout(() => this.classList.add('opacity-30'), 0);
+                });
+                li.addEventListener('dragend', function() {
+                    this.classList.remove('opacity-30');
+                    draggedItem = null;
+                });
+                li.addEventListener('dragover', function(e) {
+                    e.preventDefault(); 
+                });
+                li.addEventListener('dragenter', function(e) {
+                    e.preventDefault();
+                    this.classList.add('drag-over');
+                });
+                li.addEventListener('dragleave', function() {
+                    this.classList.remove('drag-over');
+                });
+                li.addEventListener('drop', function() {
+                    this.classList.remove('drag-over');
+                    if (draggedItem && draggedItem !== this) {
+                        const fromIndex = parseInt(draggedItem.dataset.index);
+                        const toIndex = parseInt(this.dataset.index);
+                        
+                        const item = currentWaypoints.splice(fromIndex, 1)[0];
+                        currentWaypoints.splice(toIndex, 0, item);
+                        
+                        renderRouteEditor(currentWaypoints); // Re-render to fix numbers
+                    }
+                });
+                
+                list.appendChild(li);
+            });
+            
+            if (document.getElementById('enableEditorCheck').checked) {
+                document.getElementById('routeEditorContainer').classList.remove('hidden');
             }
-            if (remainingCounties.length > 500) {
-                if (!confirm(`You are trying to route through ${remainingCounties.length} counties. This will take significant time. Continue?`)) return;
+        }
+        
+        // LKH Algorithm
+            function fastRelativeDist(a, b) {
+                const rad = 0.017453292519943295;
+                const x = (b.lng - a.lng) * rad * Math.cos((a.lat + b.lat) * 0.5 * rad);
+                const y = (b.lat - a.lat) * rad;
+                return Math.sqrt(x * x + y * y);
+            }
+
+            function computeDistanceMatrix(points) {
+                const n = points.length;
+                const dist = Array(n).fill(0).map(() => new Float64Array(n).fill(0));
+                for (let i = 0; i < n; i++) {
+                    for (let j = i + 1; j < n; j++) {
+                        const d = fastRelativeDist(points[i], points[j]);
+                        dist[i][j] = d;
+                        dist[j][i] = d;
+                    }
+                }
+                return dist;
+            }
+
+            function totalCycleDistance(cycle, distMatrix) {
+                let distance = 0.0;
+                const n = cycle.length;
+                if (n <= 1) return 0;
+                for (let i = 0; i < n; ++i) {
+                    distance += distMatrix[cycle[i]][cycle[(i + 1) % n]];
+                }
+                return distance;
+            }
+
+            function buildCycleIncremental(currentCycle, remainingSet, distMatrix) {
+                const cycle = [...currentCycle];
+                const remaining = new Set(remainingSet);
+
+                while (remaining.size > 0) {
+                    let bestR = -1;
+                    let bestInsertionPosition = -1;
+                    let bestDeltaDistance = Infinity;
+
+                    for (const r of remaining) {
+                        for (let i = 0; i < cycle.length; ++i) {
+                            const p = cycle[i];
+                            const q = cycle[(i + 1) % cycle.length];
+                            const delta = distMatrix[p][r] + distMatrix[r][q];
+
+                            if (delta < bestDeltaDistance) {
+                                bestDeltaDistance = delta;
+                                bestR = r;
+                                bestInsertionPosition = i + 1;
+                            }
+                        }
+                    }
+
+                    if (bestR !== -1) {
+                        cycle.splice(bestInsertionPosition, 0, bestR);
+                        remaining.delete(bestR);
+                    } else {
+                        break;
+                    }
+                }
+                return cycle;
+            }
+
+            function buildCycleLeastDistanceUpdated(startEdge, remainingSet, distMatrix) {
+                const cycle = [...startEdge];
+                const remaining = new Set(remainingSet);
+
+                while (remaining.size > 0) {
+                    let bestR = -1;
+                    let bestInsertionPosition = -1;
+                    let bestTotalDistance = Infinity;
+
+                    for (const r of remaining) {
+                        for (let i = 0; i < cycle.length; ++i) {
+                            const tempCycle = [...cycle];
+                            tempCycle.splice(i + 1, 0, r);
+                            
+                            const tempRemaining = new Set(remaining);
+                            tempRemaining.delete(r);
+
+                            const simulatedCycle = buildCycleIncremental(tempCycle, tempRemaining, distMatrix);
+                            const simulatedDistance = totalCycleDistance(simulatedCycle, distMatrix);
+
+                            if (simulatedDistance < bestTotalDistance) {
+                                bestTotalDistance = simulatedDistance;
+                                bestR = r;
+                                bestInsertionPosition = i + 1;
+                            }
+                        }
+                    }
+
+                    if (bestR !== -1) {
+                        cycle.splice(bestInsertionPosition, 0, bestR);
+                        remaining.delete(bestR);
+                    } else {
+                        break;
+                    }
+                }
+                return cycle;
+            }
+
+            async function dynamicLookaheadInsertionAsync(distMatrix) {
+                const n = distMatrix.length;
+                const edges = [];
+                for (let i = 0; i < n; ++i) {
+                    for (let j = i + 1; j < n; ++j) {
+                        edges.push([i, j]);
+                    }
+                }
+
+                let globalBestDistance = Infinity;
+                let globalBestCycle = [];
+                let lastYieldTime = performance.now();
+
+                for (let i = 0; i < edges.length; ++i) {
+                    const edge = edges[i];
+                    
+                    const remaining = new Set();
+                    for (let k = 0; k < n; ++k) remaining.add(k);
+                    remaining.delete(edge[0]);
+                    remaining.delete(edge[1]);
+
+                    const cycle = buildCycleLeastDistanceUpdated([edge[0], edge[1]], remaining, distMatrix);
+
+                    if (cycle.length === n) {
+                        const distance = totalCycleDistance(cycle, distMatrix);
+                        if (distance < globalBestDistance) {
+                            globalBestDistance = distance;
+                            globalBestCycle = cycle;
+                        }
+                    }
+
+                    if (performance.now() - lastYieldTime > 50) {
+                        const pct = (i / edges.length) * 100;
+                        showLoading(`Calculating LKH Heuristic ${i}/${edges.length}...`, pct);
+                        await new Promise(r => setTimeout(r, 0));
+                        lastYieldTime = performance.now();
+                    }
+                }
+
+                return { distance: globalBestDistance, cycle: globalBestCycle };
+            }
+        // End of LKH algorithm
+
+        document.getElementById('applyRouteBtn').addEventListener('click', () => {
+            fetchAndDrawOSRM(currentWaypoints);
+        });
+
+        document.getElementById('calculateBtn').addEventListener('click', () => processRouting('fast'));
+        
+        document.getElementById('calcBestBtn').addEventListener('click', () => {
+            if (confirm("WARNING: This option calculates A LOT of combinations to find the optimal path. This could take a long time to complete for a large number of counties. and PLEASE DO NOT DO THIS FOR THE WHOLE US! Do you wish to continue?")) {
+                processRouting('best');
+            }
+        });
+
+        async function processRouting(algorithm = 'fast') {
+            if (remainingCounties.length < 1 && !homeMarker) {
+                showMessage("No destinations to route.", "error");
+                return;
             }
             document.getElementById('exportBtn').style.display = 'none';
 
@@ -478,8 +784,8 @@
                     countySeatsCache = {};
                     data.results.bindings.forEach(b => {
                         const fips = b.fips.value;
-                        const coords = b.coords.value; 
-                        const match = coords.match(/Point\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)/); 
+                        const coords = b.coords.value;
+                        const match = coords.match(/Point\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)/);
                         if (match) {
                             countySeatsCache[fips] = { lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
                         }
@@ -490,129 +796,266 @@
                     });
                 } catch (e) {
                     showMessage("Could not fetch County Seats. Falling back to centroids.", "error");
-                    countySeatsCache = {}; 
+                    countySeatsCache = {};
                 }
             }
 
-            showLoading("Establishing path...", 0);
+            showLoading("Establishing points...", 0);
             await new Promise(resolve => setTimeout(resolve, 50));
-            routeLayer.clearLayers();
-            fullRouteCoordinates = [];
 
             try {
-                let unvisited = remainingCounties.map(f => {
+                let allPoints = [];
+                let homeIndex = -1;
+
+                if (homeMarker) {
+                    homeIndex = 0;
+                    allPoints.push({ 
+                        id: 'HOME', 
+                        name: 'Home Point',
+                        lng: homeMarker.getLatLng().lng, 
+                        lat: homeMarker.getLatLng().lat 
+                    });
+                }
+
+                remainingCounties.forEach(f => {
                     let seat = null;
                     if (countySeatsCache && countySeatsCache[f.id]) {
                         seat = countySeatsCache[f.id];
                     }
                     const center = L.geoJSON(f).getBounds().getCenter();
-                    return {
+                    const stateAbbr = STATE_DATA[f.properties.STATE]?.abbr || "";
+                    allPoints.push({
                         id: f.id,
+                        name: `${f.properties.NAME || "Unknown"}, ${stateAbbr}`,
                         lng: seat ? seat.lng : center.lng,
                         lat: seat ? seat.lat : center.lat
-                    };
+                    });
                 });
 
                 let sortedWaypoints = [];
-                let currentActualCoord;
 
-                if (homeMarker) {
-                    currentActualCoord = { lng: homeMarker.getLatLng().lng, lat: homeMarker.getLatLng().lat };
-                } else if (unvisited.length > 0) {
-                    let start = unvisited.shift();
-                    currentActualCoord = { lng: start.lng, lat: start.lat };
-                }
-                
-                if (currentActualCoord) sortedWaypoints.push(currentActualCoord);
-
-                while(unvisited.length > 0) {
-                    let closestIdx = 0;
-                    let minDist = Infinity;
-                    for(let i=0; i<unvisited.length; i++) {
-                        const d = Math.sqrt(Math.pow(currentActualCoord.lat - unvisited[i].lat, 2) + Math.pow(currentActualCoord.lng - unvisited[i].lng, 2));
-                        if (d < minDist) {
-                            minDist = d;
-                            closestIdx = i;
-                        }
+                if (allPoints.length <= 3) {
+                    sortedWaypoints = [...allPoints];
+                    if (homeIndex !== -1 && sortedWaypoints.length > 1) {
+                        sortedWaypoints.push(allPoints[0]); 
                     }
-                    let next = unvisited.splice(closestIdx, 1)[0];
-                    currentActualCoord = { lng: next.lng, lat: next.lat };
-                    sortedWaypoints.push(currentActualCoord);
-                }
-
-                if (homeMarker && sortedWaypoints.length > 1) {
-                    sortedWaypoints.push({ lng: homeMarker.getLatLng().lng, lat: homeMarker.getLatLng().lat });
-                }
-
-                if (sortedWaypoints.length > 3) {
-                    showLoading("Optimizing route...", 0);
+                } else if (algorithm === 'best') {
+                    showLoading("Building Distance Matrix...", 0);
                     await new Promise(r => setTimeout(r, 50));
-                    let improvement = true;
-                    let iter = 0;
-                    let maxIter = 100; 
-                    const endBound = homeMarker ? sortedWaypoints.length - 2 : sortedWaypoints.length - 1;
                     
-                    while (improvement && iter < maxIter) {
-                        improvement = false;
-                        for (let i = 1; i < endBound; i++) {
-                            for (let j = i + 1; j <= endBound; j++) {
-                                let d1 = calculateHaversineDistance(sortedWaypoints[i - 1], sortedWaypoints[i]);
-                                let d2 = (j + 1 < sortedWaypoints.length) ? calculateHaversineDistance(sortedWaypoints[j], sortedWaypoints[j + 1]) : 0;
-                                let d3 = calculateHaversineDistance(sortedWaypoints[i - 1], sortedWaypoints[j]);
-                                let d4 = (j + 1 < sortedWaypoints.length) ? calculateHaversineDistance(sortedWaypoints[i], sortedWaypoints[j + 1]) : 0;
-                                if (d1 + d2 > d3 + d4) {
-                                    let reversedSegment = sortedWaypoints.slice(i, j + 1).reverse();
-                                    sortedWaypoints.splice(i, reversedSegment.length, ...reversedSegment);
-                                    improvement = true;
-                                }
+                    const distMatrix = computeDistanceMatrix(allPoints);
+                    
+                    showLoading("Starting Dynamic Lookahead Heuristic...", 0);
+                    const { cycle } = await dynamicLookaheadInsertionAsync(distMatrix);
+                    
+                    let startIndex = 0;
+                    if (homeIndex !== -1) {
+                        startIndex = cycle.indexOf(homeIndex);
+                    }
+                    
+                    for (let i = 0; i < cycle.length; i++) {
+                        const ptIdx = cycle[(startIndex + i) % cycle.length];
+                        sortedWaypoints.push(allPoints[ptIdx]);
+                    }
+                    
+                    if (homeIndex !== -1 && sortedWaypoints.length > 1) {
+                        sortedWaypoints.push(allPoints[homeIndex]);
+                    }
+                } else {
+                    // 3-Opt
+                    let unvisited = [...allPoints];
+                    let currentActualCoord;
+
+                    if (homeIndex !== -1) {
+                        currentActualCoord = unvisited.splice(homeIndex, 1)[0];
+                    } else if (unvisited.length > 0) {
+                        currentActualCoord = unvisited.shift();
+                    }
+                    
+                    if (currentActualCoord) sortedWaypoints.push(currentActualCoord);
+
+                    while(unvisited.length > 0) {
+                        let closestIdx = 0;
+                        let minDist = Infinity;
+                        for(let i=0; i<unvisited.length; i++) {
+                            const d = fastRelativeDist(currentActualCoord, unvisited[i]);
+                            if (d < minDist) {
+                                minDist = d;
+                                closestIdx = i;
                             }
                         }
-                        iter++;
-                        if (iter % 5 === 0 || !improvement) {
-                            const progressPercent = Math.round((iter / maxIter) * 100);
-                            showLoading(`Untangling paths (${iter}/${maxIter})...`, progressPercent);
-                            await new Promise(r => setTimeout(r, 10));
+                        let next = unvisited.splice(closestIdx, 1)[0];
+                        currentActualCoord = next;
+                        sortedWaypoints.push(currentActualCoord);
+                    }
+
+                    if (homeIndex !== -1 && sortedWaypoints.length > 1) {
+                        sortedWaypoints.push(allPoints[homeIndex]);
+                    }
+
+                    if (sortedWaypoints.length > 3) {
+                        showLoading("Using 3-Opt", 0);
+                        await new Promise(r => setTimeout(r, 50));
+                        
+                        let improvement = true;
+                        let iter = 0;
+                        let maxIter = 2000; 
+                        const N = sortedWaypoints.length;
+                        const endBound = homeIndex !== -1 ? N - 2 : N - 1;
+
+                        const reverse = (arr, start, end) => {
+                            while (start < end) {
+                                let temp = arr[start];
+                                arr[start] = arr[end];
+                                arr[end] = temp;
+                                start++;
+                                end--;
+                            }
+                        };
+
+                        while (improvement && iter < maxIter) {
+                            improvement = false;
+                            
+                            for (let i = 1; i <= endBound; i++) {
+                                for (let j = i + 1; j <= endBound; j++) {
+                                    let A = sortedWaypoints[i - 1];
+                                    let B = sortedWaypoints[i];
+                                    let C = sortedWaypoints[j];
+                                    let D = (j + 1 < N) ? sortedWaypoints[j + 1] : null;
+
+                                    let d1 = fastRelativeDist(A, B);
+                                    let d2 = D ? fastRelativeDist(C, D) : 0;
+                                    let d3 = fastRelativeDist(A, C);
+                                    let d4 = D ? fastRelativeDist(B, D) : 0;
+
+                                    if (d3 + d4 < d1 + d2 - 1e-9) {
+                                        reverse(sortedWaypoints, i, j);
+                                        improvement = true;
+                                    }
+                                }
+                            }
+
+                            if (!improvement) {
+                                let threeOptImprovement = false;
+                                for (let i = 1; i <= endBound - 1 && !threeOptImprovement; i++) {
+                                    let A = sortedWaypoints[i - 1];
+                                    let B = sortedWaypoints[i];
+                                    let dAB = fastRelativeDist(A, B);
+
+                                    for (let j = i + 1; j <= Math.min(endBound, i + 60) && !threeOptImprovement; j++) {
+                                        let C = sortedWaypoints[j - 1];
+                                        let D = sortedWaypoints[j];
+                                        let dCD = fastRelativeDist(C, D);
+                                        let dAC = fastRelativeDist(A, C);
+                                        let dAD = fastRelativeDist(A, D);
+
+                                        for (let k = j + 1; k <= Math.min(endBound + 1, j + 60); k++) {
+                                            let E = sortedWaypoints[k - 1];
+                                            let F = (k < N) ? sortedWaypoints[k] : null;
+                                            let dEF = F ? fastRelativeDist(E, F) : 0;
+                                            let d0 = dAB + dCD + dEF;
+                                            let dDF = F ? fastRelativeDist(D, F) : 0;
+                                            let dCF = F ? fastRelativeDist(C, F) : 0;
+                                            let dBF = F ? fastRelativeDist(B, F) : 0;
+                                            let d3_val = dAC + fastRelativeDist(B, E) + dDF;
+                                            let d4_val = dAD + fastRelativeDist(E, B) + dCF;
+                                            let d5_val = fastRelativeDist(A, E) + fastRelativeDist(D, B) + dCF;
+                                            let d6_val = dAD + fastRelativeDist(E, C) + dBF;
+                                            let minD = Math.min(d3_val, d4_val, d5_val, d6_val);
+                                            
+                                            if (minD < d0 - 1e-9) {
+                                                if (minD === d3_val) {
+                                                    reverse(sortedWaypoints, i, j - 1);
+                                                    reverse(sortedWaypoints, j, k - 1);
+                                                } else if (minD === d4_val) {
+                                                    reverse(sortedWaypoints, i, j - 1);
+                                                    reverse(sortedWaypoints, j, k - 1);
+                                                    reverse(sortedWaypoints, i, k - 1);
+                                                } else if (minD === d5_val) {
+                                                    reverse(sortedWaypoints, i, j - 1);
+                                                    reverse(sortedWaypoints, i, k - 1);
+                                                } else if (minD === d6_val) {
+                                                    reverse(sortedWaypoints, j, k - 1);
+                                                    reverse(sortedWaypoints, i, k - 1);
+                                                }
+                                                threeOptImprovement = true;
+                                                improvement = true; 
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            iter++;
+                            if (iter % 3 === 0 || improvement) {
+                                showLoading(`Untangling paths (Iteration ${iter})...`, Math.min(99, (iter/100)*100));
+                                await new Promise(r => setTimeout(r, 5)); 
+                            }
                         }
                     }
                 }
 
-                let routeMarkers = [];
-                sortedWaypoints.forEach((wp, index) => {
-                    const progressRatio = sortedWaypoints.length > 1 ? index / (sortedWaypoints.length - 1) : 1;
-                    const lightness = 20 + (progressRatio * 65); 
-                    const markerColor = `hsl(0, 100%, ${lightness}%)`;
-                    let marker = L.circleMarker([wp.lat, wp.lng], {
-                        radius: 5,
-                        color: '#ffffff',
-                        weight: 2,
-                        fillColor: markerColor, 
-                        fillOpacity: 1
-                    }).addTo(routeLayer)
-                      .bindPopup(`<b>Stop ${index + 1}</b><br>Lat: ${wp.lat.toFixed(4)}<br>Lng: ${wp.lng.toFixed(4)}`);
-                    routeMarkers.push(marker);
-                });
+                currentWaypoints = sortedWaypoints;
+                renderRouteEditor(currentWaypoints);
+                await fetchAndDrawOSRM(currentWaypoints);
 
-                let totalDistance = 0;
-                let totalDurationSeconds = 0;
-                const batchSize = 50;
-                const totalBatches = Math.ceil(sortedWaypoints.length / batchSize);
-                let currentLegGlobalIndex = 0;
-                
-                const isDaysMode = document.getElementById('daysMode').checked;
-                let maxHours = parseInt(document.getElementById('maxDriveHours').value) || 0;
-                if (maxHours > 24) maxHours = 24; 
-                const maxDaySeconds = (maxHours * 3600) + ((parseInt(document.getElementById('maxDriveMins').value) || 0) * 60);
-                let currentDaySeconds = 0;
-                let dayCounter = 1;
+            } catch (err) {
+                showMessage("Routing failed. An error occurred during calculations.", "error");
+                hideLoading();
+            }
+        }
 
-                for (let i = 0; i < sortedWaypoints.length - 1; i += batchSize) {
+        async function fetchAndDrawOSRM(waypoints) {
+            routeLayer.clearLayers();
+            fullRouteCoordinates = [];
+            
+            let routeMarkers = [];
+            waypoints.forEach((wp, index) => {
+                const progressRatio = waypoints.length > 1 ? index / (waypoints.length - 1) : 1;
+                const lightness = 20 + (progressRatio * 65);
+                const markerColor = `hsl(0, 100%, ${lightness}%)`;
+                let iconLabel = wp.id === 'HOME' ? "Home" : "Stop";
+                let marker = L.circleMarker([wp.lat, wp.lng], {
+                    radius: wp.id === 'HOME' ? 7 : 5,
+                    color: '#ffffff',
+                    weight: 2,
+                    fillColor: markerColor,
+                    fillOpacity: 1
+                }).addTo(routeLayer)
+                  .bindPopup(`<b>${index + 1}. ${iconLabel}</b><br>${wp.name}<br>Lat: ${wp.lat.toFixed(4)}<br>Lng: ${wp.lng.toFixed(4)}`);
+                routeMarkers.push(marker);
+            });
+
+            if(waypoints.length < 2) {
+                hideLoading();
+                showMessage("Map rendered. Need more than 1 point to route.", "success");
+                return;
+            }
+
+            let totalDistance = 0;
+            let totalDurationSeconds = 0;
+            const batchSize = 50;
+            const totalBatches = Math.ceil((waypoints.length - 1) / batchSize);
+            let currentLegGlobalIndex = 0;
+            
+            const isDaysMode = document.getElementById('daysMode').checked;
+            let maxHours = parseInt(document.getElementById('maxDriveHours').value) || 0;
+            if (maxHours > 24) maxHours = 24;
+            const maxDaySeconds = (maxHours * 3600) + ((parseInt(document.getElementById('maxDriveMins').value) || 0) * 60);
+            let currentDaySeconds = 0;
+            let dayCounter = 1;
+
+            try {
+                for (let i = 0; i < waypoints.length - 1; i += batchSize) {
                     const batchNum = Math.floor(i / batchSize) + 1;
-                    const percent = (batchNum / totalBatches) * 100;
+                    const percent = (batchNum / Math.max(1, totalBatches)) * 100;
                     showLoading(`Fetching navigation data (${batchNum}/${totalBatches})...`, percent);
 
-                    const batch = sortedWaypoints.slice(i, i + batchSize + 1);
-                    const coordsString = batch.map(w => `${w.lng},${w.lat}`).join(';');
+                    const batch = waypoints.slice(i, i + batchSize + 1);
+                    const coordsString = batch.map(w => `${w.lng.toFixed(6)},${w.lat.toFixed(6)}`).join(';');
                     const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson&steps=true`;
+                    
                     const response = await fetch(osrmUrl);
                     const data = await response.json();
 
@@ -625,7 +1068,7 @@
                                     if (currentDaySeconds + leg.duration > maxDaySeconds) {
                                         let sleepNodeIndex = currentLegGlobalIndex;
                                         if (sleepNodeIndex > 0 && routeMarkers[sleepNodeIndex]) {
-                                            routeMarkers[sleepNodeIndex].setStyle({ fillColor: '#1e293b', radius: 8, color: '#ffffff', weight: 3 }); 
+                                            routeMarkers[sleepNodeIndex].setStyle({ fillColor: '#1e293b', radius: 8, color: '#ffffff', weight: 3 });
                                             let existingPopup = routeMarkers[sleepNodeIndex].getPopup().getContent();
                                             if (!existingPopup.includes('End of Day')) {
                                                 routeMarkers[sleepNodeIndex].setPopupContent(existingPopup.replace('</b>', ` (End of Day ${dayCounter}) 🛏️</b>`));
@@ -634,7 +1077,7 @@
                                             routeMarkers[sleepNodeIndex].isSleepNode = true;
                                         }
                                         dayCounter++;
-                                        currentDaySeconds = leg.duration; 
+                                        currentDaySeconds = leg.duration;
                                     } else {
                                         currentDaySeconds += leg.duration;
                                     }
@@ -643,11 +1086,11 @@
                                     if (routeMarkers[currentLegGlobalIndex] && !routeMarkers[currentLegGlobalIndex].isSleepNode) {
                                         routeMarkers[currentLegGlobalIndex].setStyle({ fillColor: legColor });
                                     }
-                                    if (currentLegGlobalIndex === sortedWaypoints.length - 2 && routeMarkers[currentLegGlobalIndex + 1] && !routeMarkers[currentLegGlobalIndex + 1].isSleepNode) {
+                                    if (currentLegGlobalIndex === waypoints.length - 2 && routeMarkers[currentLegGlobalIndex + 1] && !routeMarkers[currentLegGlobalIndex + 1].isSleepNode) {
                                         routeMarkers[currentLegGlobalIndex + 1].setStyle({ fillColor: legColor });
                                     }
                                 } else {
-                                    const totalLegs = sortedWaypoints.length - 1;
+                                    const totalLegs = waypoints.length - 1;
                                     const progressRatio = totalLegs > 0 ? currentLegGlobalIndex / totalLegs : 1;
                                     const lightness = 20 + (progressRatio * 65);
                                     legColor = `hsl(0, 100%, ${lightness}%)`;
@@ -692,20 +1135,21 @@
                     document.getElementById('routeDaysStat').innerText = dayCounter;
                 }
 
-                showMessage("Route calculated successfully!", "success");
+                showMessage("Route calculated successfully", "success");
                 document.getElementById('exportBtn').style.display = 'inline-flex';
                 document.getElementById('appStatus').innerText = "Route Complete";
                 document.getElementById('appStatus').style.color = "#8b5cf6";
-                const bounds = L.latLngBounds(sortedWaypoints.map(w => [w.lat, w.lng]));
+                const bounds = L.latLngBounds(waypoints.map(w => [w.lat, w.lng]));
                 map.fitBounds(bounds);
 
-            } catch (err) {
-                showMessage("Routing failed. API limits might have been exceeded.", "error");
+            } catch(e) {
+                showMessage("Error drawing path.", "error");
             } finally {
                 hideLoading();
             }
         }
 
+        // GPX
         document.getElementById('exportBtn').addEventListener('click', () => {
             if (fullRouteCoordinates.length === 0) {
                 showMessage("No route calculated yet.", "error");
@@ -756,10 +1200,4 @@
         window.onload = initMap;
     </script>
 </body>
-
 </html>
-
-
-
-
-
