@@ -181,7 +181,7 @@
                     <button id="exportBtn" class="action-btn btn-purple flex-1" style="display: none;">Export GPX</button>
                 </div>
                 <div class="mt-2">
-                    <button id="calcBestBtn" class="action-btn bg-red-600 hover:bg-red-700 w-full">Best Route (Slow)</button>
+                    <button id="calcBestBtn" class="action-btn bg-red-600 hover:bg-red-700 w-full">Best Possible Route (Slow)</button>
                 </div>
 
                 <div class="mt-4 border-t border-slate-100 pt-4">
@@ -191,12 +191,14 @@
                     </label>
                 </div>
 
+                <!-- Route Editor -->
                 <div id="routeEditorContainer" class="hidden bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-sm">
                     <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
                         Route Editor
                         <span class="text-xs text-slate-400 normal-case font-normal">(Drag to reorder)</span>
                     </h3>
                     <ul id="routeList" class="space-y-1.5 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                        <!-- Populated by JS -->
                     </ul>
                     <button id="applyRouteBtn" class="action-btn btn-indigo w-full mt-3">Recalculate Custom Order</button>
                 </div>
@@ -252,7 +254,7 @@
         let map, countyLayer, routeLayer;
         let allCounties = [];
         let filledCountyFips = new Set();
-        let customCountyFips = new Set();
+        let customCountyFips = new Set(); // For custom select mode
         let remainingCounties = [];
         let mapchartIdToFips = {};
         let fallbackMapping = {};
@@ -348,11 +350,11 @@
             }
         });
 
-         function getCountyStyle(feature) {
+        function getCountyStyle(feature) {
             const isCustomMode = document.getElementById('customModeCheck').checked;
             
             if (isCustomMode && customCountyFips.has(feature.id)) {
-                return { fillColor: '#C41B1B', weight: 2, opacity: 1, color: '#940909', fillOpacity: 0.6 }; // Amber for custom target
+                return { fillColor: '#C41B1B', weight: 2, opacity: 1, color: '#940909', fillOpacity: 0.6 };
             }
             
             const isFilled = filledCountyFips.has(feature.id);
@@ -549,6 +551,7 @@
             document.getElementById('countiesRemaining').innerText = remainingCounties.length;
         }
 
+        // --- Drag and Drop Route Editor ---
         let draggedItem = null;
         function renderRouteEditor(waypoints) {
             const list = document.getElementById('routeList');
@@ -595,7 +598,7 @@
                         const item = currentWaypoints.splice(fromIndex, 1)[0];
                         currentWaypoints.splice(toIndex, 0, item);
                         
-                        renderRouteEditor(currentWaypoints);
+                        renderRouteEditor(currentWaypoints); // Re-render to fix numbers
                     }
                 });
                 
@@ -608,7 +611,7 @@
         }
         
         // LKH Algorithm
-            function fastRelativeDist(a, b) {
+            function fastDistance(a, b) {
                 const rad = 0.017453292519943295;
                 const x = (b.lng - a.lng) * rad * Math.cos((a.lat + b.lat) * 0.5 * rad);
                 const y = (b.lat - a.lat) * rad;
@@ -620,7 +623,7 @@
                 const dist = Array(n).fill(0).map(() => new Float64Array(n).fill(0));
                 for (let i = 0; i < n; i++) {
                     for (let j = i + 1; j < n; j++) {
-                        const d = fastRelativeDist(points[i], points[j]);
+                        const d = fastDistance(points[i], points[j]);
                         dist[i][j] = d;
                         dist[j][i] = d;
                     }
@@ -671,7 +674,7 @@
                 return cycle;
             }
 
-            function buildCycleLeastDistanceUpdated(startEdge, remainingSet, distMatrix) {
+            function findShortestDistance(startEdge, remainingSet, distMatrix) {
                 const cycle = [...startEdge];
                 const remaining = new Set(remainingSet);
 
@@ -709,7 +712,7 @@
                 return cycle;
             }
 
-            async function dynamicLookaheadInsertionAsync(distMatrix) {
+            async function lookaheadAlgorithm(distMatrix) {
                 const n = distMatrix.length;
                 const edges = [];
                 for (let i = 0; i < n; ++i) {
@@ -730,7 +733,7 @@
                     remaining.delete(edge[0]);
                     remaining.delete(edge[1]);
 
-                    const cycle = buildCycleLeastDistanceUpdated([edge[0], edge[1]], remaining, distMatrix);
+                    const cycle = findShortestDistance([edge[0], edge[1]], remaining, distMatrix);
 
                     if (cycle.length === n) {
                         const distance = totalCycleDistance(cycle, distMatrix);
@@ -843,7 +846,7 @@
                     const distMatrix = computeDistanceMatrix(allPoints);
                     
                     showLoading("Starting Dynamic Lookahead Heuristic...", 0);
-                    const { cycle } = await dynamicLookaheadInsertionAsync(distMatrix);
+                    const { cycle } = await lookaheadAlgorithm(distMatrix);
                     
                     let startIndex = 0;
                     if (homeIndex !== -1) {
@@ -875,7 +878,7 @@
                         let closestIdx = 0;
                         let minDist = Infinity;
                         for(let i=0; i<unvisited.length; i++) {
-                            const d = fastRelativeDist(currentActualCoord, unvisited[i]);
+                            const d = fastDistance(currentActualCoord, unvisited[i]);
                             if (d < minDist) {
                                 minDist = d;
                                 closestIdx = i;
@@ -920,10 +923,10 @@
                                     let C = sortedWaypoints[j];
                                     let D = (j + 1 < N) ? sortedWaypoints[j + 1] : null;
 
-                                    let d1 = fastRelativeDist(A, B);
-                                    let d2 = D ? fastRelativeDist(C, D) : 0;
-                                    let d3 = fastRelativeDist(A, C);
-                                    let d4 = D ? fastRelativeDist(B, D) : 0;
+                                    let d1 = fastDistance(A, B);
+                                    let d2 = D ? fastDistance(C, D) : 0;
+                                    let d3 = fastDistance(A, C);
+                                    let d4 = D ? fastDistance(B, D) : 0;
 
                                     if (d3 + d4 < d1 + d2 - 1e-9) {
                                         reverse(sortedWaypoints, i, j);
@@ -937,27 +940,27 @@
                                 for (let i = 1; i <= endBound - 1 && !threeOptImprovement; i++) {
                                     let A = sortedWaypoints[i - 1];
                                     let B = sortedWaypoints[i];
-                                    let dAB = fastRelativeDist(A, B);
+                                    let dAB = fastDistance(A, B);
 
                                     for (let j = i + 1; j <= Math.min(endBound, i + 60) && !threeOptImprovement; j++) {
                                         let C = sortedWaypoints[j - 1];
                                         let D = sortedWaypoints[j];
-                                        let dCD = fastRelativeDist(C, D);
-                                        let dAC = fastRelativeDist(A, C);
-                                        let dAD = fastRelativeDist(A, D);
+                                        let dCD = fastDistance(C, D);
+                                        let dAC = fastDistance(A, C);
+                                        let dAD = fastDistance(A, D);
 
                                         for (let k = j + 1; k <= Math.min(endBound + 1, j + 60); k++) {
                                             let E = sortedWaypoints[k - 1];
                                             let F = (k < N) ? sortedWaypoints[k] : null;
-                                            let dEF = F ? fastRelativeDist(E, F) : 0;
+                                            let dEF = F ? fastDistance(E, F) : 0;
                                             let d0 = dAB + dCD + dEF;
-                                            let dDF = F ? fastRelativeDist(D, F) : 0;
-                                            let dCF = F ? fastRelativeDist(C, F) : 0;
-                                            let dBF = F ? fastRelativeDist(B, F) : 0;
-                                            let d3_val = dAC + fastRelativeDist(B, E) + dDF;
-                                            let d4_val = dAD + fastRelativeDist(E, B) + dCF;
-                                            let d5_val = fastRelativeDist(A, E) + fastRelativeDist(D, B) + dCF;
-                                            let d6_val = dAD + fastRelativeDist(E, C) + dBF;
+                                            let dDF = F ? fastDistance(D, F) : 0;
+                                            let dCF = F ? fastDistance(C, F) : 0;
+                                            let dBF = F ? fastDistance(B, F) : 0;
+                                            let d3_val = dAC + fastDistance(B, E) + dDF;
+                                            let d4_val = dAD + fastDistance(E, B) + dCF;
+                                            let d5_val = fastDistance(A, E) + fastDistance(D, B) + dCF;
+                                            let d6_val = dAD + fastDistance(E, C) + dBF;
                                             let minD = Math.min(d3_val, d4_val, d5_val, d6_val);
                                             
                                             if (minD < d0 - 1e-9) {
@@ -1198,4 +1201,3 @@
     </script>
 </body>
 </html>
-
