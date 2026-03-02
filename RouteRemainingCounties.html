@@ -181,7 +181,7 @@
                     <button id="exportBtn" class="action-btn btn-purple flex-1" style="display: none;">Export GPX</button>
                 </div>
                 <div class="mt-2">
-                    <button id="calcBestBtn" class="action-btn bg-red-600 hover:bg-red-700 w-full">Best Possible Route (Slow)</button>
+                    <button id="calcBestBtn" class="action-btn bg-red-600 hover:bg-red-700 w-full">Best Route (Slow)</button>
                 </div>
 
                 <div class="mt-4 border-t border-slate-100 pt-4">
@@ -191,14 +191,12 @@
                     </label>
                 </div>
 
-                <!-- Route Editor -->
                 <div id="routeEditorContainer" class="hidden bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-sm">
                     <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
                         Route Editor
                         <span class="text-xs text-slate-400 normal-case font-normal">(Drag to reorder)</span>
                     </h3>
                     <ul id="routeList" class="space-y-1.5 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                        <!-- Populated by JS -->
                     </ul>
                     <button id="applyRouteBtn" class="action-btn btn-indigo w-full mt-3">Recalculate Custom Order</button>
                 </div>
@@ -254,7 +252,7 @@
         let map, countyLayer, routeLayer;
         let allCounties = [];
         let filledCountyFips = new Set();
-        let customCountyFips = new Set(); // For custom select mode
+        let customCountyFips = new Set();
         let remainingCounties = [];
         let mapchartIdToFips = {};
         let fallbackMapping = {};
@@ -350,16 +348,16 @@
             }
         });
 
-        function getCountyStyle(feature) {
+         function getCountyStyle(feature) {
             const isCustomMode = document.getElementById('customModeCheck').checked;
             
             if (isCustomMode && customCountyFips.has(feature.id)) {
-                return { fillColor: '#f59e0b', weight: 2, opacity: 1, color: '#b45309', fillOpacity: 0.6 }; // Amber for custom target
+                return { fillColor: '#C41B1B', weight: 2, opacity: 1, color: '#940909', fillOpacity: 0.6 }; // Amber for custom target
             }
             
             const isFilled = filledCountyFips.has(feature.id);
             return {
-                fillColor: isFilled ? '#cbd5e1' : '#ffffff',
+                fillColor: isFilled ? '#3784e1' : '#ffffff',
                 weight: 1, opacity: 1, color: '#94a3b8',
                 fillOpacity: isFilled ? 0.8 : 0.4
             };
@@ -551,7 +549,6 @@
             document.getElementById('countiesRemaining').innerText = remainingCounties.length;
         }
 
-        // --- Drag and Drop Route Editor ---
         let draggedItem = null;
         function renderRouteEditor(waypoints) {
             const list = document.getElementById('routeList');
@@ -598,7 +595,7 @@
                         const item = currentWaypoints.splice(fromIndex, 1)[0];
                         currentWaypoints.splice(toIndex, 0, item);
                         
-                        renderRouteEditor(currentWaypoints); // Re-render to fix numbers
+                        renderRouteEditor(currentWaypoints);
                     }
                 });
                 
@@ -1201,3 +1198,4 @@
     </script>
 </body>
 </html>
+
