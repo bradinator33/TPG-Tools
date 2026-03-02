@@ -191,14 +191,12 @@
                     </label>
                 </div>
 
-                <!-- Route Editor -->
                 <div id="routeEditorContainer" class="hidden bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-sm">
                     <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
                         Route Editor
                         <span class="text-xs text-slate-400 normal-case font-normal">(Drag to reorder)</span>
                     </h3>
                     <ul id="routeList" class="space-y-1.5 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                        <!-- Populated by JS -->
                     </ul>
                     <button id="applyRouteBtn" class="action-btn btn-indigo w-full mt-3">Recalculate Custom Order</button>
                 </div>
@@ -254,15 +252,13 @@
         let map, countyLayer, routeLayer;
         let allCounties = [];
         let filledCountyFips = new Set();
-        let customCountyFips = new Set(); // For custom select mode
+        let customCountyFips = new Set();
         let remainingCounties = [];
         let mapchartIdToFips = {};
         let fallbackMapping = {};
         let countySeatsCache = null; 
         let homeMarker = null;
         let isSettingHome = false;
-        
-        // Active Route State
         let currentWaypoints = []; 
         let fullRouteCoordinates = []; 
 
@@ -551,7 +547,6 @@
             document.getElementById('countiesRemaining').innerText = remainingCounties.length;
         }
 
-        // --- Drag and Drop Route Editor ---
         let draggedItem = null;
         function renderRouteEditor(waypoints) {
             const list = document.getElementById('routeList');
@@ -598,7 +593,7 @@
                         const item = currentWaypoints.splice(fromIndex, 1)[0];
                         currentWaypoints.splice(toIndex, 0, item);
                         
-                        renderRouteEditor(currentWaypoints); // Re-render to fix numbers
+                        renderRouteEditor(currentWaypoints);
                     }
                 });
                 
@@ -1201,3 +1196,4 @@
     </script>
 </body>
 </html>
+
