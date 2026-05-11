@@ -5,133 +5,298 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Random US Coordinates Generator</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    
     <style>
-        body { font-family: sans-serif; padding: 1em; }
-        #map {
-            width: 100%;
-            height: 700px;
-            margin-top: 1em;
+        body { font-family: sans-serif; background-color: #fff; margin: 0; padding: 0; }
+        #map { height: calc(100vh - 60px); width: 100%; border-top: 1px solid #ccc; z-index: 1; }
+        
+        .control-panel {
+            background: #fdfdfd;
             border: 1px solid #ccc;
+            width: 350px;
+            min-width: 250px;
+            max-width: 80vw;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            border-radius: 6px;
         }
-        #stateSelector {
-            width: 250px;
-            height: 200px;
-            vertical-align: top;
+
+        .resizer-h {
+            width: 6px;
+            height: 100%;
+            position: absolute;
+            right: 0;
+            top: 0;
+            cursor: col-resize;
+            z-index: 1002;
+            transition: background 0.2s;
         }
-        label {
-            display: block;
-            margin-top: 1em;
-            font-weight: bold;
+        .resizer-h:hover {
+            background: rgba(0, 0, 0, 0.05);
         }
-        button {
-            margin-top: 1em;
+
+        .panel-header {
+            background: #f8f9fa;
+            padding: 12px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            border-radius: 6px 6px 0 0;
         }
-        button:disabled {
-            cursor: not-allowed;
-            color: #aaa;
-        }
-        #output {
-            margin-top: 1em;
-            font-family: monospace;
-            font-size: 1.1em;
-            background-color: #f4f4f4;
-            padding: 0.5em;
-            border: 1px solid #ddd;
-            max-height: 200px;
+
+        .panel-content {
+            padding: 15px;
+            max-height: 80vh;
             overflow-y: auto;
         }
-        #loader {
-            display: none;
-            margin-top: 1em;
-            font-style: italic;
-            color: #555;
+
+        .panel-content.hidden { display: none; }
+
+        label { display: block; font-weight: bold; font-size: 0.8rem; color: #444; margin-top: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.025em; }
+        
+        select, input[type="number"] {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #fff;
         }
-        .controls-group {
-            margin-top: 1em;
+
+        button {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-radius: 4px;
+            transition: all 0.2s;
         }
-        .speed-gen-container {
-            margin-top: 0.5em;
+
+        button:hover { background: #e5e7eb; }
+        button:disabled { color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb; background: #f9fafb; }
+
+        .btn-primary { background: #2563eb; color: white; border-color: #1d4ed8; }
+        .btn-primary:hover { background: #1d4ed8; }
+        
+        .btn-danger { background: #ef4444; color: white; border-color: #dc2626; }
+        .btn-danger:hover { background: #dc2626; }
+
+        .btn-success { background: #10b981; color: white; border-color: #059669; }
+        .btn-success:hover { background: #059669; }
+
+        .results-summary {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 15px;
         }
+
+        .log-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            margin-top: 4px;
+            background: #fff;
+            border: 1px solid #f3f4f6;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: background 0.2s;
+        }
+        .log-row:hover { background: #f0f9ff; border-color: #bae6fd; }
+
+        .nav-bar {
+            height: 60px;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: relative;
+            z-index: 10;
+        }
+
+        .nav-controls { display: flex; align-items: center; gap: 15px; }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #eff6ff;
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+            font-weight: bold;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .toggle-container:has(input:checked) {
+            background: #dbeafe;
+            border-color: #93c5fd;
+            box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+        }
+        .toggle-container input { cursor: pointer; }
+
+        .leaflet-popup-content-wrapper { border-radius: 8px; }
+        .leaflet-popup-content { font-size: 1.1rem !important; line-height: 1.5; margin: 14px 20px !important; }
+        .leaflet-popup-content b { color: #2563eb; font-size: 1.25rem; }
+
+        .hidden { display: none !important; }
+        .info-text { font-size: 0.8rem; color: #64748b; margin-top: 5px; line-height: 1.4; }
     </style>
 </head>
 <body onload="initMap()">
 
-    <h1>Random US Coordinates Generator</h1>
-    <h3>Select a region or individual states. Leave blank to generate a location anywhere in the US.</h3>
+    <nav class="nav-bar">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <h1 style="margin:0; font-size: 1.1rem; font-weight: 900; color: #1e293b; text-transform: uppercase; letter-spacing: -0.02em;">Random US Coordinates Generator</h1>
+        </div>
+        
+        <div id="topBarResult" class="hidden" style="position: absolute; left: 50%; transform: translateX(-50%); background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 4px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: bold; box-shadow: 0 1px 2px rgba(0,0,0,0.05); white-space: nowrap; z-index: 20; max-width: 45vw; overflow: hidden; text-overflow: ellipsis;"></div>
+        
+        <div class="nav-controls" style="flex-wrap: wrap;">
+            <label style="margin:0; text-transform: none; font-size: 0.85rem;">Mode:</label>
+            <label class="toggle-container">
+                <input type="radio" name="appMode" value="states" checked onchange="switchMode('states')"> States
+            </label>
+            <label class="toggle-container">
+                <input type="radio" name="appMode" value="counties" onchange="switchMode('counties')"> Counties
+            </label>
+            <label class="toggle-container">
+                <input type="radio" name="appMode" value="draw" onchange="switchMode('draw')"> Draw
+            </label>
+        </div>
+    </nav>
 
-    <label for="regionSelector">Region Presets:</label>
-    <select id="regionSelector">
-        <option value="">-- Select a Region --</option>
-        <option value="midwest">Midwest</option>
-        <option value="west">West</option>
-        <option value="south">South</option>
-        <option value="new_england">New England</option>
-        <option value="mid_atlantic">Mid-Atlantic</option>
-        <option value="territories">US Territories</option>
-    </select>
+    <div style="position: relative;">
+        <div id="map"></div>
 
-    <div>
-        <label for="stateSelector">Select States (Hold Ctrl/Cmd to select multiple):</label>
-        <select id="stateSelector" multiple>
-        </select>
-    </div>
-    
-    <button id="clearSelectionBtn">Clear Selection</button>
-    <button id="downloadBtn" disabled>Download Locations as CSV</button>
-    
-    <div class="controls-group">
-        <button id="generateBtn">Generate Single Location</button>
-    </div>
+        <div class="control-panel" id="mainPanel">
+            <div class="resizer-h" id="panelResizer"></div>
+            
+            <div class="panel-header" onclick="togglePanel()">
+                <span id="panelTitle" style="font-weight: 800; font-size: 0.85rem; color: #334155; text-transform: uppercase;">Generator Controls</span>
+                <span id="panelStatus" style="font-size: 0.7rem; font-weight: bold; color: #10b981;">Ready</span>
+            </div>
+            
+            <div class="panel-content" id="panelContent">
+                
+                <!-- STATES CONTROLS -->
+                <div id="statesControls">
+                    <label for="regionSelector">Region Preset</label>
+                    <select id="regionSelector">
+                        <option value="">-- All USA --</option>
+                        <option value="midwest">Midwest</option>
+                        <option value="west">West</option>
+                        <option value="south">South</option>
+                        <option value="new_england">New England</option>
+                        <option value="mid_atlantic">Mid-Atlantic</option>
+                        <option value="territories">US Territories</option>
+                    </select>
 
-    <div class="controls-group">
-        <label for="numToGenerate">Number of Locations:</label>
-        <input type="number" id="numToGenerate" value="10" min="1" max="1000" style="width: 60px;">
-        <button id="generateMultipleBtn">Generate Multiple Locations</button>
-        <div class="speed-gen-container">
-            <input type="checkbox" id="speedGen">
-            <label for="speedGen" style="display: inline; font-weight: normal; cursor: pointer;">Speed Generation (Skips checking county)</label>
+                    <label for="stateSelector">Individual States (Ctrl/Cmd to multi-select)</label>
+                    <select id="stateSelector" multiple style="height: 120px;"></select>
+                    <button id="clearStateSelectionBtn" style="padding: 4px 8px; font-size: 0.7rem; margin-top: 5px;">Clear Selection</button>
+                </div>
+
+                <!-- COUNTIES CONTROLS -->
+                <div id="countiesControls" class="hidden">
+                    <div class="info-text">
+                        <strong>Instructions:</strong> Click counties on the map to select them. Points will generate within the selected areas.
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                        <button id="clearCountiesBtn" class="btn-danger" style="margin: 0;">Clear Counties</button>
+                        <span id="countyCountDisplay" style="font-weight: bold; font-size: 0.85rem; color: #2563eb;">0 selected</span>
+                    </div>
+                </div>
+
+                <!-- DRAW CONTROLS -->
+                <div id="drawControls" class="hidden">
+                    <div class="info-text">
+                        <strong>Instructions:</strong> Use the shape tools on the top right of the map to draw areas. Points will generate within those shapes.
+                    </div>
+                    <button id="clearDrawnBtn" class="btn-danger" style="width: 100%;">Clear All Drawings</button>
+                </div>
+
+                <hr style="border-top: 1px solid #e2e8f0; margin: 15px 0;">
+
+                <div style="display: flex; gap: 8px; margin-top: 10px;">
+                    <button id="generateBtn" class="btn-primary" style="flex: 1;">Generate 1</button>
+                    <button id="generateMultipleBtn" class="btn-primary" style="flex: 1;">Generate Multiple</button>
+                </div>
+                
+                <button id="clearPointsBtn" class="btn-danger" style="width: 100%; margin-top: 8px;">Clear Points</button>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 0.75rem; font-weight: bold; color: #64748b; text-transform: uppercase;">Quantity:</span>
+                        <input type="number" id="numToGenerate" value="10" min="1" max="1000" style="width: 70px;">
+                    </div>
+                    
+                    <button id="downloadBtn" class="btn-success" disabled style="margin: 0; padding: 6px 12px; font-size: 0.75rem;">Download CSV</button>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; text-transform: none; color: #334155; cursor: pointer;">
+                        <input type="checkbox" id="speedGen">
+                        Speed Generation <span style="font-size: 0.7rem; color:#94a3b8;">(Skips exact county lookup)</span>
+                    </label>
+                </div>
+
+                <div id="output" style="margin-top: 15px;">
+                    <div class="results-summary">
+                        <p style="color: #94a3b8; font-size: 0.8rem; text-align: center; font-style: italic; margin: 0;">Select options and generate coordinates.</p>
+                    </div>
+                </div>
+
+                <div id="loader" style="display: none; text-align: center; padding: 10px; background: #eff6ff; border-radius: 6px; border: 1px solid #bfdbfe; margin-top: 15px;">
+                    <span style="font-size: 0.8rem; color: #2563eb; font-weight: bold;" id="loaderText">Generating...</span>
+                </div>
+            </div>
         </div>
     </div>
-
-    <div id="output">Click a button to generate coordinates.</div>
-    <div id="loader">Finding a valid point...</div>
-
-    <div id="map"></div>
 
     <script>
         let map;
         let pinsLayer = null;
         let boundaryLayer = null;
+        
+        let currentMode = 'states';
         const stateGeoJsonCache = new Map();
         let generatedLocations = [];
         let shouldDrawBoundary = true;
 
-        const stateNames = [
-            "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "District of Columbia", "Florida", "Georgia",
-            "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
-            "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
-            "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
-            "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
-            "American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"
-        ];
+        let drawnItems = null;
+        let drawControl = null;
 
-        const stateAreas = {
-            "Alabama": 131171, "Alaska": 1477953, "Arizona": 294207, "Arkansas": 134771, "California": 403466,
-            "Colorado": 268431, "Connecticut": 12542, "Delaware": 5047, "District of Columbia": 68, "Florida": 138887, "Georgia": 149165,
-            "Hawaii": 16635, "Idaho": 214045, "Illinois": 143793, "Indiana": 92789, "Iowa": 144669,
-            "Kansas": 211754, "Kentucky": 102269, "Louisiana": 111898, "Maine": 79883, "Maryland": 25147,
-            "Massachusetts": 20202, "Michigan": 146435, "Minnesota": 206232, "Mississippi": 121531, "Missouri": 178040,
-            "Montana": 376962, "Nebraska": 198974, "Nevada": 284332, "New Hampshire": 23187, "New Jersey": 19047,
-            "New Mexico": 314161, "New York": 122057, "North Carolina": 125920, "North Dakota": 178711, "Ohio": 105829,
-            "Oklahoma": 177660, "Oregon": 248608, "Pennsylvania": 115883, "Rhode Island": 2678, "South Carolina": 77857,
-            "South Dakota": 196350, "Tennessee": 106798, "Texas": 676587, "Utah": 212818, "Vermont": 23871,
-            "Virginia": 102279, "Washington": 172119, "West Virginia": 62259, "Wisconsin": 140268, "Wyoming": 251470,
-            "American Samoa": 199, "Guam": 544, "Northern Mariana Islands": 464, "Puerto Rico": 8870, "U.S. Virgin Islands": 346
-        };
-        
+        let countiesLayer = null;
+        let selectedCounties = new Set();
+
+        const stateNames = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming", "American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"];
+        const stateAreas = {"Alabama": 131171, "Alaska": 1477953, "Arizona": 294207, "Arkansas": 134771, "California": 403466, "Colorado": 268431, "Connecticut": 12542, "Delaware": 5047, "District of Columbia": 68, "Florida": 138887, "Georgia": 149165, "Hawaii": 16635, "Idaho": 214045, "Illinois": 143793, "Indiana": 92789, "Iowa": 144669, "Kansas": 211754, "Kentucky": 102269, "Louisiana": 111898, "Maine": 79883, "Maryland": 25147, "Massachusetts": 20202, "Michigan": 146435, "Minnesota": 206232, "Mississippi": 121531, "Missouri": 178040, "Montana": 376962, "Nebraska": 198974, "Nevada": 284332, "New Hampshire": 23187, "New Jersey": 19047, "New Mexico": 314161, "New York": 122057, "North Carolina": 125920, "North Dakota": 178711, "Ohio": 105829, "Oklahoma": 177660, "Oregon": 248608, "Pennsylvania": 115883, "Rhode Island": 2678, "South Carolina": 77857, "South Dakota": 196350, "Tennessee": 106798, "Texas": 676587, "Utah": 212818, "Vermont": 23871, "Virginia": 102279, "Washington": 172119, "West Virginia": 62259, "Wisconsin": 140268, "Wyoming": 251470, "American Samoa": 199, "Guam": 544, "Northern Mariana Islands": 464, "Puerto Rico": 8870, "U.S. Virgin Islands": 346};
         const regionPresets = {
             midwest: ["Illinois", "Indiana", "Iowa", "Kansas", "Michigan", "Minnesota", "Missouri", "Nebraska", "North Dakota", "Ohio", "South Dakota", "Wisconsin"],
             west: ["Arizona", "California", "Colorado", "Idaho", "Montana", "Nevada", "New Mexico", "Oregon", "Utah", "Washington", "Wyoming"],
@@ -140,7 +305,6 @@
             mid_atlantic: ["Delaware", "District of Columbia", "Maryland", "New Jersey", "New York", "Pennsylvania", "Virginia", "West Virginia"],
             territories: ["American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"]
         };
-        
         const territoryUrls = {
             "American Samoa": "https://raw.githubusercontent.com/bradinator33/TPG-Tools/refs/heads/main/AmericanSamoa.geojson",
             "District of Columbia": "https://raw.githubusercontent.com/benbalter/dc-maps/master/maps/dc-boundary.geojson",
@@ -151,27 +315,118 @@
         };
 
         function initMap() {
-            map = L.map('map').setView([39.8283, -98.5795], 4);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            // Setup Map (zoom controls top-right to avoid side panel)
+            map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
+            L.control.zoom({ position: 'topright' }).addTo(map);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
             }).addTo(map);
+            
             boundaryLayer = L.geoJSON(null, { style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false } }).addTo(map);
             pinsLayer = L.featureGroup().addTo(map);
             
+            // Draw Mode Setup
+            drawnItems = new L.FeatureGroup();
+
+            // Override Leaflet.Draw distance formatter to strictly use miles instead of feet for circle radius
+            if (typeof L.GeometryUtil !== 'undefined' && L.GeometryUtil.readableDistance) {
+                L.GeometryUtil.readableDistance = function(distance) {
+                    const miles = distance * 0.000621371;
+                    return miles.toFixed(3) + ' mi';
+                };
+            }
+
+            drawControl = new L.Control.Draw({
+                position: 'topright',
+                draw: {
+                    polyline: false, marker: false, circlemarker: false,
+                    polygon: { allowIntersection: false, showArea: true, metric: false },
+                    circle: { metric: false },
+                    rectangle: { metric: false }
+                },
+                edit: { featureGroup: drawnItems, remove: true }
+            });
+
+            map.on(L.Draw.Event.CREATED, function (e) {
+                drawnItems.addLayer(e.layer);
+            });
+            
+            initResizer();
             populateStateSelector();
+            
+            // Event Listeners
             document.getElementById('generateBtn').addEventListener('click', handleSingleGeneration);
             document.getElementById('generateMultipleBtn').addEventListener('click', handleMultipleGeneration);
+            document.getElementById('clearPointsBtn').addEventListener('click', clearPoints);
             document.getElementById('downloadBtn').addEventListener('click', downloadCSV);
             document.getElementById('regionSelector').addEventListener('change', handleRegionSelect);
-            document.getElementById('clearSelectionBtn').addEventListener('click', clearStateSelection);
+            document.getElementById('clearStateSelectionBtn').addEventListener('click', clearStateSelection);
+            document.getElementById('clearCountiesBtn').addEventListener('click', clearCountySelection);
+            document.getElementById('clearDrawnBtn').addEventListener('click', clearDrawnItems);
+        }
+
+        function initResizer() {
+            const panel = document.getElementById('mainPanel');
+            const resizer = document.getElementById('panelResizer');
+            let isResizing = false;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                e.preventDefault();
+                document.body.style.cursor = 'col-resize';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const newWidth = e.clientX - panel.getBoundingClientRect().left;
+                if (newWidth >= 250 && newWidth <= window.innerWidth * 0.8) {
+                    panel.style.width = `${newWidth}px`;
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    document.body.style.cursor = 'default';
+                }
+            });
+        }
+
+        function togglePanel() {
+            document.getElementById('panelContent').classList.toggle('hidden');
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            
+            document.getElementById('statesControls').classList.toggle('hidden', mode !== 'states');
+            document.getElementById('countiesControls').classList.toggle('hidden', mode !== 'counties');
+            document.getElementById('drawControls').classList.toggle('hidden', mode !== 'draw');
+
+            boundaryLayer.clearLayers();
+            
+            if (mode === 'draw') {
+                map.addControl(drawControl);
+                map.addLayer(drawnItems);
+            } else {
+                map.removeControl(drawControl);
+                map.removeLayer(drawnItems);
+            }
+
+            if (mode === 'counties') {
+                loadCountiesLayer();
+                if (countiesLayer) map.addLayer(countiesLayer);
+            } else {
+                if (countiesLayer) map.removeLayer(countiesLayer);
+            }
         }
 
         function populateStateSelector() {
             const selector = document.getElementById('stateSelector');
             stateNames.forEach(name => {
                 const option = document.createElement('option');
-                option.value = name;
-                option.textContent = name;
+                option.value = name; option.textContent = name;
                 selector.appendChild(option);
             });
         }
@@ -187,19 +442,37 @@
 
         function clearStateSelection() {
             const stateSelector = document.getElementById('stateSelector');
-            for (const option of stateSelector.options) {
-                option.selected = false;
-            }
+            for (const option of stateSelector.options) option.selected = false;
             document.getElementById('regionSelector').value = "";
         }
 
+        function clearDrawnItems() {
+            drawnItems.clearLayers();
+            updateOutput('<div class="results-summary text-center text-gray-500">Drawn shapes cleared.</div>');
+        }
+
+        function clearPoints() {
+            pinsLayer.clearLayers();
+            generatedLocations = [];
+            document.getElementById('downloadBtn').disabled = true;
+            document.getElementById('topBarResult').classList.add('hidden');
+            updateOutput('<div class="results-summary text-center text-gray-500">All points cleared.</div>');
+        }
+
+        function showMessage(text, isError=false) {
+            hideLoader();
+            const color = isError ? '#ef4444' : '#334155';
+            updateOutput(`<div class="results-summary" style="color: ${color}; font-weight: bold; text-align: center;">${text}</div>`);
+        }
+
         function showLoader(text) {
-            const loader = document.getElementById('loader');
-            loader.textContent = text;
-            loader.style.display = 'block';
+            document.getElementById('loaderText').textContent = text;
+            document.getElementById('loader').style.display = 'block';
             document.getElementById('output').style.display = 'none';
             document.getElementById('generateBtn').disabled = true;
             document.getElementById('generateMultipleBtn').disabled = true;
+            document.getElementById('panelStatus').textContent = "Working...";
+            document.getElementById('panelStatus').style.color = "#f59e0b";
         }
 
         function hideLoader() {
@@ -207,51 +480,99 @@
             document.getElementById('output').style.display = 'block';
             document.getElementById('generateBtn').disabled = false;
             document.getElementById('generateMultipleBtn').disabled = false;
+            document.getElementById('panelStatus').textContent = "Ready";
+            document.getElementById('panelStatus').style.color = "#10b981";
         }
 
         function updateOutput(html) {
             document.getElementById('output').innerHTML = html;
         }
-        
-        function addPointToMap(lat, lon, locationData) {
-            const location = L.latLng(lat, lon);
-            let popupContent = `<b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b><br>${locationData.county || 'Skipped'}, ${locationData.state}`;
-            L.marker(location).addTo(pinsLayer).bindPopup(popupContent);
+
+        async function loadCountiesLayer() {
+            if (countiesLayer) return;
+            showLoader("Downloading Counties Map...");
+            try {
+                let url = "https://gist.githubusercontent.com/sdwfrost/d1c73f91dd9d175998ed166eb216994a/raw/counties.geojson";
+                let response = await fetch(url);
+                if (!response.ok) {
+                    url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json";
+                    response = await fetch(url);
+                }
+                const geojsonData = await response.json();
+                
+                countiesLayer = L.geoJSON(geojsonData, {
+                    style: getCountyStyle,
+                    onEachFeature: (feature, layer) => {
+                        layer.on('click', () => {
+                            if (currentMode !== 'counties') return;
+                            if (selectedCounties.has(feature)) selectedCounties.delete(feature);
+                            else selectedCounties.add(feature);
+                            countiesLayer.resetStyle(layer);
+                            document.getElementById('countyCountDisplay').textContent = `${selectedCounties.size} selected`;
+                        });
+                        if (feature.properties && feature.properties.NAME) {
+                            layer.bindTooltip(feature.properties.NAME);
+                        }
+                    }
+                });
+                
+                if (currentMode === 'counties') map.addLayer(countiesLayer);
+            } catch (error) {
+                console.error("Error loading counties:", error);
+                showMessage("Failed to load US counties.", true);
+            }
+            hideLoader();
         }
 
-        function resetUI() {
-            boundaryLayer.clearLayers();
-            pinsLayer.clearLayers();
-            generatedLocations = [];
-            document.getElementById('downloadBtn').disabled = true;
-            updateOutput('Click a button to generate coordinates.');
+        function getCountyStyle(feature) {
+            const isSelected = selectedCounties.has(feature);
+            return {
+                fillColor: isSelected ? '#3b82f6' : '#94a3b8',
+                weight: 1, opacity: 0.8, color: 'white',
+                fillOpacity: isSelected ? 0.7 : 0.2
+            };
+        }
+
+        function clearCountySelection() {
+            selectedCounties.clear();
+            if (countiesLayer) countiesLayer.eachLayer(layer => countiesLayer.resetStyle(layer));
+            document.getElementById('countyCountDisplay').textContent = `0 selected`;
+            updateOutput('<div class="results-summary text-center text-gray-500">County selections cleared.</div>');
         }
 
         async function handleSingleGeneration() {
-            resetUI();
+            resetUIForGeneration();
             shouldDrawBoundary = true;
-            const location = await generateSinglePoint();
+            
+            const location = await generatePointBasedOnMode();
             if (location) {
                 generatedLocations.push(location);
-                addPointToMap(location.lat, location.lon, location);
-                updateOutput(`${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}<br>${location.county || 'Skipped'}, ${location.state}`);
+                const marker = addPointToMap(location.lat, location.lon, location);
+                renderOutputLogs();
+                
+                const topBar = document.getElementById('topBarResult');
+                topBar.innerHTML = `<span style="color:#64748b; font-weight: normal;">Latest:</span> ${location.lat.toFixed(5)}, ${location.lon.toFixed(5)} &nbsp;|&nbsp; ${location.county || 'N/A'}, ${location.state}`;
+                topBar.classList.remove('hidden');
+
                 document.getElementById('downloadBtn').disabled = false;
                 map.setView([location.lat, location.lon], 6);
+                marker.openPopup();
             }
         }
         
         async function handleMultipleGeneration() {
-            resetUI();
-            shouldDrawBoundary = false; 
             const numToGenerate = parseInt(document.getElementById('numToGenerate').value, 10);
             if (isNaN(numToGenerate) || numToGenerate < 1) {
-                alert("Please enter a valid number of locations to generate.");
+                showMessage("Please enter a valid quantity.", true);
                 return;
             }
 
+            resetUIForGeneration();
+            shouldDrawBoundary = false; 
+
             for (let i = 1; i <= numToGenerate; i++) {
-                showLoader(`Generating ${i} of ${numToGenerate}...`);
-                const location = await generateSinglePoint();
+                showLoader(`Generating point ${i} of ${numToGenerate}...`);
+                const location = await generatePointBasedOnMode();
                 if (location) {
                     generatedLocations.push(location);
                     addPointToMap(location.lat, location.lon, location);
@@ -259,68 +580,105 @@
             }
             
             hideLoader();
-            const outputHtml = generatedLocations.map(loc => `<li>${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)} (${loc.county || 'Skipped'}, ${loc.state})</li>`).join('');
-            updateOutput(`<ul>${outputHtml}</ul>`);
-            document.getElementById('downloadBtn').disabled = false;
-            if (pinsLayer.getLayers().length > 0) {
-                map.fitBounds(pinsLayer.getBounds().pad(0.1));
+            if (generatedLocations.length > 0) {
+                renderOutputLogs();
+                document.getElementById('downloadBtn').disabled = false;
+                if (pinsLayer.getLayers().length > 0) {
+                    map.fitBounds(pinsLayer.getBounds().pad(0.1));
+                }
             }
         }
 
-        async function generateSinglePoint() {
-            const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
+        function resetUIForGeneration() {
+            if (currentMode === 'states') boundaryLayer.clearLayers();
+            pinsLayer.clearLayers();
+            generatedLocations = [];
+            document.getElementById('downloadBtn').disabled = true;
+            document.getElementById('topBarResult').classList.add('hidden');
+            updateOutput('');
+        }
+
+        function renderOutputLogs() {
+            if(generatedLocations.length === 0) return;
             
-            let point = null;
-            if (selectedStates.length > 0) {
-                point = await generateLocationInStates(selectedStates);
-            } else {
-                point = await generateLocationInUSA();
+            let html = `<div style="max-height: 250px; overflow-y: auto; padding-right: 5px;">`;
+            generatedLocations.forEach((loc, idx) => {
+                html += `
+                    <div class="log-row" onclick="map.setView([${loc.lat}, ${loc.lon}], 8)">
+                        <div style="display: flex; flex-direction: column; width: 100%;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #64748b; font-weight: bold;">#${idx + 1}</span>
+                                <span style="font-weight: 700; color: #0f172a;">${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}</span>
+                            </div>
+                            <span style="font-size: 0.65rem; color: #64748b; margin-top: 2px; text-align: right;">${loc.county || 'N/A'}, ${loc.state}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+            updateOutput(html);
+        }
+
+        async function generatePointBasedOnMode() {
+            if (currentMode === 'states') {
+                const selectedStates = Array.from(document.getElementById('stateSelector').selectedOptions).map(opt => opt.value);
+                return selectedStates.length > 0 ? await generateLocationInStates(selectedStates) : await generateLocationInUSA();
+            } else if (currentMode === 'counties') {
+                return await generateLocationInCounties();
+            } else if (currentMode === 'draw') {
+                return await generateLocationInDrawn();
+            }
+        }
+
+        async function generateLocationInCounties() {
+            if (selectedCounties.size === 0) {
+                showMessage("Select at least one county on the map.", true);
+                return null;
+            }
+            const features = Array.from(selectedCounties);
+            const selectedFeature = pickFeatureByArea(features);
+            const countyName = selectedFeature.properties.NAME || selectedFeature.properties.name || "Selected County";
+            
+            const rawPoint = await generatePointInPolygonFeature(selectedFeature, "USA", countyName);
+            return await finalizePointDetails(rawPoint);
+        }
+
+        async function generateLocationInDrawn() {
+            const layers = drawnItems.getLayers();
+            if (layers.length === 0) {
+                showMessage("Draw at least one shape on the map first.", true);
+                return null;
             }
 
-            hideLoader();
-            return point;
+            const features = [];
+            layers.forEach(layer => {
+                if (layer instanceof L.Circle) {
+                    features.push(turf.circle([layer.getLatLng().lng, layer.getLatLng().lat], layer.getRadius(), {units: 'meters'}));
+                } else if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
+                    features.push(layer.toGeoJSON());
+                }
+            });
+
+            const selectedFeature = pickFeatureByArea(features);
+            const rawPoint = await generatePointInPolygonFeature(selectedFeature, "Custom Area", "Custom Shape");
+            return await finalizePointDetails(rawPoint);
         }
 
         async function generateLocationInStates(states) {
             try {
                 const geojsonPromises = states.map(fetchStateGeoJSON);
                 const geojsonArray = await Promise.all(geojsonPromises);
-                if (shouldDrawBoundary && !boundaryLayer.getLayers().length) {
+                
+                if (shouldDrawBoundary && currentMode === 'states' && !boundaryLayer.getLayers().length) {
                     boundaryLayer.addData(geojsonArray);
                 }
                 
-                const weightedFeatures = geojsonArray.map(feature => {
-                    const area = turf.area(feature);
-                    return { feature, area };
-                });
-                const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
-
-                let random = Math.random() * totalArea;
-                let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
-                for (const item of weightedFeatures) {
-                    random -= item.area;
-                    if (random <= 0) {
-                        selectedFeature = item.feature;
-                        break;
-                    }
-                }
-                
-                const validPoint = await generatePointInSingleBoundary(selectedFeature.properties.name, selectedFeature);
-                const isSpeedGen = document.getElementById('speedGen').checked;
-
-                if (!isSpeedGen) {
-                    const locationDetails = await checkIfValidUSLocation(validPoint.lat, validPoint.lon);
-                    validPoint.county = locationDetails.county || 'N/A';
-                    validPoint.state = locationDetails.state || validPoint.state;
-                } else {
-                    validPoint.county = 'Skipped';
-                }
-                
-                return validPoint;
-
+                const selectedFeature = pickFeatureByArea(geojsonArray);
+                const rawPoint = await generatePointInPolygonFeature(selectedFeature, selectedFeature.properties.name, undefined);
+                return await finalizePointDetails(rawPoint);
             } catch (error) {
-                console.error("Error fetching or processing state boundaries:", error);
-                updateOutput(`<span style="color: red;">Error: ${error.message}</span>`);
+                console.error(error);
+                showMessage(`Error fetching state boundaries: ${error.message}`, true);
                 return null;
             }
         }
@@ -328,15 +686,9 @@
         async function generateLocationInUSA() {
             const weightedStates = [];
             let totalWeight = 0;
-            
             for (const name of stateNames) {
-                const area = stateAreas[name];
-                if (!area) continue;
-                
-                let weight = area;
-                if (name === "Alaska") {
-                    weight /= 5.0;
-                }
+                if (!stateAreas[name]) continue;
+                let weight = name === "Alaska" ? stateAreas[name] / 5.0 : stateAreas[name];
                 weightedStates.push({ name: name, weight: weight });
                 totalWeight += weight;
             }
@@ -351,67 +703,43 @@
                 }
             }
             
-            const point = await generatePointInSingleBoundary(selectedStateName);
-            const isSpeedGen = document.getElementById('speedGen').checked;
-
-            if (!isSpeedGen) {
-                const locationDetails = await checkIfValidUSLocation(point.lat, point.lon);
-                point.county = locationDetails.county || 'N/A';
-                point.state = locationDetails.state || selectedStateName;
-            } else {
-                point.county = 'Skipped';
-                point.state = selectedStateName;
+            const feature = await fetchStateGeoJSON(selectedStateName);
+            if (shouldDrawBoundary && currentMode === 'states' && !boundaryLayer.getLayers().length) {
+                boundaryLayer.addData(feature);
             }
-            return point;
-        }
-        
-        async function generatePointInSingleBoundary(stateName, stateGeoJSON = null) {
-            try {
-                if (!stateGeoJSON) {
-                    stateGeoJSON = await fetchStateGeoJSON(stateName);
-                }
-                
-                showLoader(`Finding a valid point in ${stateName}...`);
-                
-                if (shouldDrawBoundary && boundaryLayer && !boundaryLayer.getLayers().length) {
-                    boundaryLayer.addData(stateGeoJSON);
-                }
 
-                while (true) {
-                    const singleBbox = turf.bbox(stateGeoJSON);
-                    const regionForBbox = { minLon: singleBbox[0], minLat: singleBbox[1], maxLon: singleBbox[2], maxLat: singleBbox[3] };
-                    const coord = getRandomCoordinateInRegion(regionForBbox);
-                    const randomPoint = turf.point([coord.lon, coord.lat]);
-
-                    if (turf.booleanPointInPolygon(randomPoint, stateGeoJSON)) {
-                        return { lat: coord.lat, lon: coord.lon, state: stateGeoJSON.properties.name };
-                    }
-                }
-            } catch (error) {
-                console.error(`Error generating point in ${stateName}:`, error);
-                updateOutput(`<span style="color: red;">Error: Could not fetch data for ${stateName}.</span>`);
-                return null;
-            }
+            const rawPoint = await generatePointInPolygonFeature(feature, selectedStateName, undefined);
+            return await finalizePointDetails(rawPoint);
         }
 
-        async function fetchStateGeoJSON(stateName) {
-            if (stateGeoJsonCache.has(stateName)) return stateGeoJsonCache.get(stateName);
+        function pickFeatureByArea(features) {
+            const weightedFeatures = features.map(feature => ({ feature, area: turf.area(feature) }));
+            const totalArea = weightedFeatures.reduce((sum, item) => sum + item.area, 0);
             
-            let url = territoryUrls[stateName] || `https://raw.githubusercontent.com/glynnbird/usstatesgeojson/refs/heads/master/${stateName.toLowerCase()}.geojson`;
-            
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`Could not fetch boundary for ${stateName}`);
-            const geojson = await response.json();
-            
-            let feature;
-            if (geojson.type === 'Feature') feature = geojson;
-            else if (geojson.type === 'FeatureCollection') feature = geojson.features[0];
-            else feature = turf.feature(geojson);  
+            let random = Math.random() * totalArea;
+            let selectedFeature = weightedFeatures[weightedFeatures.length - 1].feature;
+            for (const item of weightedFeatures) {
+                random -= item.area;
+                if (random <= 0) {
+                    selectedFeature = item.feature;
+                    break;
+                }
+            }
+            return selectedFeature;
+        }
 
-            feature.properties = feature.properties || {};
-            feature.properties.name = stateName;
-            stateGeoJsonCache.set(stateName, feature);
-            return feature;
+        async function generatePointInPolygonFeature(feature, defaultState, defaultCounty) {
+            const singleBbox = turf.bbox(feature);
+            const regionForBbox = { minLon: singleBbox[0], minLat: singleBbox[1], maxLon: singleBbox[2], maxLat: singleBbox[3] };
+
+            while (true) {
+                const coord = getRandomCoordinateInRegion(regionForBbox);
+                const randomPoint = turf.point([coord.lon, coord.lat]);
+
+                if (turf.booleanPointInPolygon(randomPoint, feature)) {
+                    return { lat: coord.lat, lon: coord.lon, state: defaultState, county: defaultCounty };
+                }
+            }
         }
 
         function getRandomCoordinateInRegion(region) {
@@ -424,11 +752,42 @@
             return { lat, lon };
         }
 
+        async function fetchStateGeoJSON(stateName) {
+            if (stateGeoJsonCache.has(stateName)) return stateGeoJsonCache.get(stateName);
+            
+            let url = territoryUrls[stateName] || `https://raw.githubusercontent.com/glynnbird/usstatesgeojson/refs/heads/master/${stateName.toLowerCase()}.geojson`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Could not fetch boundary for ${stateName}`);
+            
+            const geojson = await response.json();
+            let feature = geojson.type === 'FeatureCollection' ? geojson.features[0] : (geojson.type === 'Feature' ? geojson : turf.feature(geojson));  
+
+            feature.properties = feature.properties || {};
+            feature.properties.name = stateName;
+            stateGeoJsonCache.set(stateName, feature);
+            return feature;
+        }
+
+        async function finalizePointDetails(point) {
+            const isSpeedGen = document.getElementById('speedGen').checked;
+            if (!isSpeedGen) {
+                const locationDetails = await checkIfValidUSLocation(point.lat, point.lon);
+                point.county = locationDetails.county || point.county || 'N/A';
+                point.state = locationDetails.state || point.state || 'Unknown';
+            } else {
+                point.county = point.county || 'Skipped';
+                point.state = point.state || 'Unknown';
+            }
+            hideLoader();
+            return point;
+        }
+
         async function checkIfValidUSLocation(lat, lon) {
             try {
                 const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`;
                 const response = await fetch(url, { headers: { 'User-Agent': 'RandomCoordGenerator/1.0' } });
                 if (!response.ok) return { valid: false };
+                
                 const data = await response.json();
                 const countryCode = data.address?.country_code;
                 if (data && data.address && ["us", "as", "gu", "mp", "pr", "vi"].includes(countryCode)) {
@@ -444,9 +803,14 @@
             return { valid: false };
         }
 
+        function addPointToMap(lat, lon, locationData) {
+            const location = L.latLng(lat, lon);
+            let popupContent = `<div style="text-align: center;"><b>${lat.toFixed(5)}, ${lon.toFixed(5)}</b><br><span style="color: #64748b; font-size: 0.95rem;">${locationData.county || 'N/A'}, ${locationData.state}</span></div>`;
+            return L.marker(location).addTo(pinsLayer).bindPopup(popupContent, { minWidth: 230 });
+        }
+
         function downloadCSV() {
             if (generatedLocations.length === 0) return;
-
             const headers = "Latitude,Longitude,County,State";
             const csvContent = [
                 headers,
@@ -465,7 +829,6 @@
                 document.body.removeChild(link);
             }
         }
-
     </script>
 </body>
 </html>
