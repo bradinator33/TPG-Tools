@@ -555,7 +555,7 @@
                 topBar.classList.remove('hidden');
 
                 document.getElementById('downloadBtn').disabled = false;
-                map.setView([location.lat, location.lon], 6);
+                map.setView([location.lat, location.lon], map.getZoom());
                 marker.openPopup();
             }
         }
