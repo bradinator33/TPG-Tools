@@ -13,6 +13,10 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+    <script src="https://unpkg.com/@tmcw/togeojson"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
     
     <style>
         body { font-family: sans-serif; background-color: #fff; margin: 0; padding: 0; }
@@ -188,6 +192,9 @@
             <label class="toggle-container">
                 <input type="radio" name="appMode" value="draw" onchange="switchMode('draw')"> Draw
             </label>
+            <label class="toggle-container">
+                <input type="radio" name="appMode" value="shapefile" onchange="switchMode('shapefile')"> Custom Shape
+            </label>
         </div>
     </nav>
 
@@ -222,23 +229,41 @@
                     <button id="clearStateSelectionBtn" style="padding: 4px 8px; font-size: 0.7rem; margin-top: 5px;">Clear Selection</button>
                 </div>
 
-                <!-- COUNTIES CONTROLS -->
                 <div id="countiesControls" class="hidden">
-                    <div class="info-text">
-                        <strong>Instructions:</strong> Click counties on the map to select them. Points will generate within the selected areas.
-                    </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
                         <button id="clearCountiesBtn" class="btn-danger" style="margin: 0;">Clear Counties</button>
                         <span id="countyCountDisplay" style="font-weight: bold; font-size: 0.85rem; color: #2563eb;">0 selected</span>
                     </div>
                 </div>
 
-                <!-- DRAW CONTROLS -->
                 <div id="drawControls" class="hidden">
-                    <div class="info-text">
-                        <strong>Instructions:</strong> Use the shape tools on the top right of the map to draw areas. Points will generate within those shapes.
-                    </div>
                     <button id="clearDrawnBtn" class="btn-danger" style="width: 100%;">Clear All Drawings</button>
+                </div>
+
+                <div id="shapefileControls" class="hidden">
+                    <label for="customShapePreset" style="margin-top: 15px;">Shapefile Presets</label>
+                    <select id="customShapePreset" size="4" style="height: 80px;">
+                        <option value="us_county_divisions">County Divisions</option>
+                        <option value="us_ecoregions">Ecoregions</option>
+                        <option value="national_parks">National Parks</option>
+                    </select>
+                    <button id="loadPresetBtn" class="btn-primary" style="width: 100%; margin-top: 5px; margin-bottom: 10px;">Load Selected Preset</button>
+                    
+                    <hr style="border-top: 1px dashed #ccc; margin: 15px 0;">
+
+                    <label for="customShapeUpload">Upload Custom File</label>
+                    <input type="file" id="customShapeUpload" accept=".geojson,.json,.zip,.kml,.gpkg" style="margin-top: 5px; font-size: 0.8rem; width: 100%; border: 1px dashed #ccc; padding: 10px; background: #f8f9fa; cursor: pointer; border-radius: 4px;" />
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 5px;">
+                        <div style="display: flex; gap: 5px; flex: 1; min-width: 200px;">
+                            <button id="clearCustomShapesBtn" class="btn-danger" style="margin: 0; flex: 1; padding: 6px 4px; font-size: 0.7rem;">Clear Map</button>
+                            <button id="selectAllShapesBtn" class="btn-primary" style="margin: 0; flex: 1; padding: 6px 4px; font-size: 0.7rem;">Select All</button>
+                            <button id="clearShapeSelectionBtn" style="margin: 0; flex: 1; padding: 6px 4px; font-size: 0.7rem;">Clear Sel.</button>
+                        </div>
+                        <div style="text-align: right; width: 100%; margin-top: 2px;">
+                            <span id="customShapeCountDisplay" style="font-weight: bold; font-size: 0.85rem; color: #a855f7;">0 selected</span>
+                        </div>
+                    </div>
                 </div>
 
                 <hr style="border-top: 1px solid #e2e8f0; margin: 15px 0;">
@@ -283,6 +308,7 @@
         let map;
         let pinsLayer = null;
         let boundaryLayer = null;
+        let SQL = null;
         
         let currentMode = 'states';
         const stateGeoJsonCache = new Map();
@@ -294,6 +320,9 @@
 
         let countiesLayer = null;
         let selectedCounties = new Set();
+        
+        let customShapesLayer = null;
+        let selectedCustomShapes = new Set();
 
         const stateNames = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming", "American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", "U.S. Virgin Islands"];
         const stateAreas = {"Alabama": 131171, "Alaska": 1477953, "Arizona": 294207, "Arkansas": 134771, "California": 403466, "Colorado": 268431, "Connecticut": 12542, "Delaware": 5047, "District of Columbia": 68, "Florida": 138887, "Georgia": 149165, "Hawaii": 16635, "Idaho": 214045, "Illinois": 143793, "Indiana": 92789, "Iowa": 144669, "Kansas": 211754, "Kentucky": 102269, "Louisiana": 111898, "Maine": 79883, "Maryland": 25147, "Massachusetts": 20202, "Michigan": 146435, "Minnesota": 206232, "Mississippi": 121531, "Missouri": 178040, "Montana": 376962, "Nebraska": 198974, "Nevada": 284332, "New Hampshire": 23187, "New Jersey": 19047, "New Mexico": 314161, "New York": 122057, "North Carolina": 125920, "North Dakota": 178711, "Ohio": 105829, "Oklahoma": 177660, "Oregon": 248608, "Pennsylvania": 115883, "Rhode Island": 2678, "South Carolina": 77857, "South Dakota": 196350, "Tennessee": 106798, "Texas": 676587, "Utah": 212818, "Vermont": 23871, "Virginia": 102279, "Washington": 172119, "West Virginia": 62259, "Wisconsin": 140268, "Wyoming": 251470, "American Samoa": 199, "Guam": 544, "Northern Mariana Islands": 464, "Puerto Rico": 8870, "U.S. Virgin Islands": 346};
@@ -315,7 +344,6 @@
         };
 
         function initMap() {
-            // Setup Map (zoom controls top-right to avoid side panel)
             map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
             L.control.zoom({ position: 'topright' }).addTo(map);
 
@@ -326,10 +354,8 @@
             boundaryLayer = L.geoJSON(null, { style: { color: "#22c55e", weight: 2, opacity: 0.8, fill: false } }).addTo(map);
             pinsLayer = L.featureGroup().addTo(map);
             
-            // Draw Mode Setup
             drawnItems = new L.FeatureGroup();
 
-            // Override Leaflet.Draw distance formatter to strictly use miles instead of feet for circle radius
             if (typeof L.GeometryUtil !== 'undefined' && L.GeometryUtil.readableDistance) {
                 L.GeometryUtil.readableDistance = function(distance) {
                     const miles = distance * 0.000621371;
@@ -352,10 +378,20 @@
                 drawnItems.addLayer(e.layer);
             });
             
+            initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` })
+                .then(sql => {
+                    SQL = sql;
+                    proj4.defs([
+                        ["EPSG:54030", "+proj=robin +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"],
+                        ["ESRI:54030", "+proj=robin +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"],
+                        ["EPSG:3857", "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext +no_defs"]
+                    ]);
+                })
+                .catch(err => console.error("Error loading SQL.js", err));
+
             initResizer();
             populateStateSelector();
             
-            // Event Listeners
             document.getElementById('generateBtn').addEventListener('click', handleSingleGeneration);
             document.getElementById('generateMultipleBtn').addEventListener('click', handleMultipleGeneration);
             document.getElementById('clearPointsBtn').addEventListener('click', clearPoints);
@@ -364,6 +400,12 @@
             document.getElementById('clearStateSelectionBtn').addEventListener('click', clearStateSelection);
             document.getElementById('clearCountiesBtn').addEventListener('click', clearCountySelection);
             document.getElementById('clearDrawnBtn').addEventListener('click', clearDrawnItems);
+            
+            document.getElementById('customShapeUpload').addEventListener('change', handleCustomShapeUpload);
+            document.getElementById('loadPresetBtn').addEventListener('click', handleLoadPreset);
+            document.getElementById('clearCustomShapesBtn').addEventListener('click', clearCustomShapes);
+            document.getElementById('selectAllShapesBtn').addEventListener('click', selectAllCustomShapes);
+            document.getElementById('clearShapeSelectionBtn').addEventListener('click', clearCustomShapeSelection);
         }
 
         function initResizer() {
@@ -403,6 +445,7 @@
             document.getElementById('statesControls').classList.toggle('hidden', mode !== 'states');
             document.getElementById('countiesControls').classList.toggle('hidden', mode !== 'counties');
             document.getElementById('drawControls').classList.toggle('hidden', mode !== 'draw');
+            document.getElementById('shapefileControls').classList.toggle('hidden', mode !== 'shapefile');
 
             boundaryLayer.clearLayers();
             
@@ -419,6 +462,12 @@
                 if (countiesLayer) map.addLayer(countiesLayer);
             } else {
                 if (countiesLayer) map.removeLayer(countiesLayer);
+            }
+            
+            if (mode === 'shapefile') {
+                if (customShapesLayer) map.addLayer(customShapesLayer);
+            } else {
+                if (customShapesLayer) map.removeLayer(customShapesLayer);
             }
         }
 
@@ -449,6 +498,341 @@
         function clearDrawnItems() {
             drawnItems.clearLayers();
             updateOutput('<div class="results-summary text-center text-gray-500">Drawn shapes cleared.</div>');
+        }
+
+        function parseWKB(buffer, converter, is3857Fallback) {
+            const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+            let offset = 0;
+            let forceWebMercator = is3857Fallback;
+            let flippedLatLon = false;
+            let checkedHeuristics = false;
+
+            function readGeometry() {
+                if (offset >= view.byteLength) return null;
+                const le = view.getUint8(offset) === 1; offset += 1;
+                let geomType = view.getUint32(offset, le); offset += 4;
+                let hasZ = false, hasM = false;
+
+                if (geomType & 0x80000000) { hasZ = true; geomType &= 0x7FFFFFFF; }
+                if (geomType & 0x40000000) { hasM = true; geomType &= 0xBFFFFFFF; }
+                if (geomType >= 1000 && geomType < 2000) { hasZ = true; geomType -= 1000; }
+                else if (geomType >= 2000 && geomType < 3000) { hasM = true; geomType -= 2000; }
+                else if (geomType >= 3000 && geomType < 4000) { hasZ = true; hasM = true; geomType -= 3000; }
+
+                function readCoord() {
+                    let x = view.getFloat64(offset, le); offset += 8;
+                    let y = view.getFloat64(offset, le); offset += 8;
+                    if (hasZ) offset += 8;
+                    if (hasM) offset += 8;
+                    
+                    if (converter) {
+                        try {
+                            const pt = converter.forward([x, y]);
+                            return [pt[0], Math.max(-90, Math.min(90, pt[1]))];
+                        } catch (e) {} 
+                    }
+
+                    if (!checkedHeuristics && !forceWebMercator) {
+                        if (Math.abs(x) > 1000 || Math.abs(y) > 1000) forceWebMercator = true;
+                        else if (Math.abs(y) > 90 && Math.abs(y) <= 360 && Math.abs(x) <= 90) flippedLatLon = true;
+                        checkedHeuristics = true;
+                    }
+
+                    if (forceWebMercator) {
+                        const a = 6378137.0;
+                        const lon = x * 180 / Math.PI / a;
+                        const lat = (Math.PI / 2 - 2 * Math.atan(Math.exp(-y / a))) * 180 / Math.PI;
+                        return [lon, Math.max(-90, Math.min(90, lat))];
+                    } else if (flippedLatLon) {
+                        return [y, x];
+                    }
+                    return [x, y];
+                }
+
+                let coords;
+                switch (geomType) {
+                    case 1: return { type: "Point", coordinates: readCoord() };
+                    case 2:
+                        const numPoints = view.getUint32(offset, le); offset += 4;
+                        coords = []; for (let i = 0; i < numPoints; i++) coords.push(readCoord());
+                        return { type: "LineString", coordinates: coords };
+                    case 3:
+                        const numRings = view.getUint32(offset, le); offset += 4;
+                        coords = [];
+                        for (let i = 0; i < numRings; i++) {
+                            const numRingPoints = view.getUint32(offset, le); offset += 4;
+                            const ring = []; for (let j = 0; j < numRingPoints; j++) ring.push(readCoord());
+                            coords.push(ring);
+                        }
+                        return { type: "Polygon", coordinates: coords };
+                    case 4: case 5: case 6:
+                        const numGeoms = view.getUint32(offset, le); offset += 4;
+                        coords = [];
+                        for (let i = 0; i < numGeoms; i++) {
+                            const subGeom = readGeometry();
+                            if (subGeom) coords.push(subGeom.coordinates);
+                        }
+                        return { type: geomType === 4 ? "MultiPoint" : (geomType === 5 ? "MultiLineString" : "MultiPolygon"), coordinates: coords };
+                    case 7:
+                        const nGeoms = view.getUint32(offset, le); offset += 4;
+                        const geoms = []; for (let i = 0; i < nGeoms; i++) geoms.push(readGeometry());
+                        return { type: "GeometryCollection", geometries: geoms };
+                    default: return null;
+                }
+            }
+            return readGeometry();
+        }
+
+        function parseGeoPackageGeom(uint8Array, converter, is3857Fallback) {
+            const magic = uint8Array[0] === 0x47 && uint8Array[1] === 0x50;
+            if (!magic) return null;
+            const flags = uint8Array[3];
+            if ((flags & 0x10) === 0x10) return null;
+
+            const envelopeIndicator = (flags >> 1) & 0x07;
+            let envelopeSize = 0;
+            if (envelopeIndicator === 1) envelopeSize = 32;
+            else if (envelopeIndicator === 2 || envelopeIndicator === 3) envelopeSize = 48;
+            else if (envelopeIndicator === 4) envelopeSize = 64;
+
+            return parseWKB(uint8Array.subarray(8 + envelopeSize), converter, is3857Fallback);
+        }
+
+        async function parseGeoPackage(buffer) {
+            if (!SQL) throw new Error("SQL Engine is not loaded yet. Please wait a moment and try again.");
+            
+            let db = null;
+            try {
+                db = new SQL.Database(new Uint8Array(buffer));
+                const features = [];
+                const res = db.exec("SELECT table_name FROM gpkg_contents WHERE data_type = 'features'");
+                if (res.length === 0) throw new Error("No feature data found.");
+                
+                for (const row of res[0].values) {
+                    const tableName = row[0];
+                    let geomColName, srsId, srsOrgId;
+                    try {
+                        const metaRes = db.exec(`SELECT c.column_name, c.srs_id, s.organization_coordsys_id FROM gpkg_geometry_columns c LEFT JOIN gpkg_spatial_ref_sys s ON c.srs_id = s.srs_id WHERE c.table_name = '${tableName}'`);
+                        if (metaRes.length === 0) continue;
+                        geomColName = metaRes[0].values[0][0]; srsId = metaRes[0].values[0][1]; srsOrgId = metaRes[0].values[0][2];
+                    } catch (e) {
+                        const metaRes = db.exec(`SELECT column_name, srs_id FROM gpkg_geometry_columns WHERE table_name = '${tableName}'`);
+                        if (metaRes.length === 0) continue;
+                        geomColName = metaRes[0].values[0][0]; srsId = metaRes[0].values[0][1];
+                    }
+                    
+                    const is3857Fallback = (srsId === 3857 || srsOrgId === 3857 || srsId === 900913 || srsOrgId === 900913 || srsId === 102100);
+
+                    let converter = null;
+                    if (srsId !== 4326 && srsId !== 0) {
+                        try {
+                            const defRes = db.exec(`SELECT definition FROM gpkg_spatial_ref_sys WHERE srs_id = ${srsId}`);
+                            const wktDef = (defRes.length > 0 && defRes[0].values[0][0]) ? defRes[0].values[0][0] : null;
+                            if (proj4.defs('EPSG:' + srsId)) converter = proj4('EPSG:' + srsId, 'EPSG:4326');
+                            else if (proj4.defs('ESRI:' + srsId)) converter = proj4('ESRI:' + srsId, 'EPSG:4326');
+                            else if (wktDef && wktDef !== 'undefined') converter = proj4(wktDef, 'EPSG:4326');
+                        } catch (e) {}
+                    }
+
+                    const query = `SELECT rowid as _sqlite_rowid, * FROM "${tableName}"`;
+                    const stmt = db.prepare(query);
+                    
+                    while (stmt.step()) {
+                        const featureData = stmt.getAsObject();
+                        const geomBlob = featureData[geomColName];
+                        delete featureData[geomColName]; 
+                        
+                        featureData._tableName = tableName; 
+
+                        if (geomBlob) {
+                            try {
+                                const geometry = parseGeoPackageGeom(geomBlob, converter, is3857Fallback);
+                                if (geometry && (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon')) {
+                                    features.push({ type: "Feature", geometry: geometry, properties: featureData });
+                                }
+                            } catch (err) {}
+                        }
+                    }
+                    stmt.free();
+                }
+                db.close();
+                return { type: "FeatureCollection", features: features };
+            } catch(e) {
+                if (db) db.close();
+                throw new Error("Failed to parse GeoPackage: " + e.message);
+            }
+        }
+
+        async function handleCustomShapeUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            showLoader("Parsing file... (This may take a moment)");
+            const name = file.name.toLowerCase();
+            
+            try {
+                let geojson = null;
+                
+                if (name.endsWith('.zip')) {
+                    const buffer = await file.arrayBuffer();
+                    geojson = await shp(buffer);
+                } else if (name.endsWith('.kml')) {
+                    const text = await file.text();
+                    const xml = new DOMParser().parseFromString(text, 'text/xml');
+                    geojson = toGeoJSON.kml(xml);
+                } else if (name.endsWith('.geojson') || name.endsWith('.json')) {
+                    const text = await file.text();
+                    geojson = JSON.parse(text);
+                } else if (name.endsWith('.gpkg')) {
+                    const buffer = await file.arrayBuffer();
+                    geojson = await parseGeoPackage(buffer);
+                } else {
+                    throw new Error("Unsupported file format.");
+                }
+
+                if (geojson) {
+                    loadCustomShapesToMap(geojson);
+                    showMessage("Shape successfully loaded.");
+                }
+            } catch (error) {
+                console.error("File parse error:", error);
+                showMessage(`Error parsing file: ${error.message}`, true);
+            }
+            
+            event.target.value = '';
+        }
+
+        async function handleLoadPreset() {
+            const presetKey = document.getElementById('customShapePreset').value;
+            if (!presetKey) {
+                showMessage("Please select a preset.", true);
+                return;
+            }
+
+            const presets = {
+                "us_county_divisions": "https://huggingface.co/datasets/Bradinator/Level2SubdivisionsGPKGs/resolve/main/USLvl3noplaces.gpkg",
+                "us_ecoregions": "https://huggingface.co/datasets/Bradinator/Level2SubdivisionsGPKGs/resolve/main/useco3.geojson",
+                "national_parks": "https://huggingface.co/datasets/Bradinator/MapsForPainter/resolve/main/NationalParksonly.gpkg",
+            };
+            
+            const url = presets[presetKey];
+            showLoader("Downloading Oreset");
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Failed to download preset.");
+                const buffer = await response.arrayBuffer();
+                
+                let geojson;
+                if (url.endsWith('.gpkg')) {
+                    geojson = await parseGeoPackage(buffer);
+                } else if (url.endsWith('.zip')) {
+                    geojson = await shp(buffer);
+                } else {
+                    const text = new TextDecoder().decode(buffer);
+                    geojson = JSON.parse(text);
+                }
+                
+                if (geojson) {
+                    loadCustomShapesToMap(geojson);
+                    showMessage("Preset successfully loaded.");
+                }
+            } catch (error) {
+                console.error("Preset load error:", error);
+                showMessage(`Error loading preset: ${error.message}`, true);
+            }
+        }
+
+        function loadCustomShapesToMap(geojsonData) {
+            if (customShapesLayer) {
+                map.removeLayer(customShapesLayer);
+                customShapesLayer = null;
+            }
+            selectedCustomShapes.clear();
+
+            if (Array.isArray(geojsonData)) {
+                geojsonData = { type: "FeatureCollection", features: geojsonData.flatMap(g => g.features || [g]) };
+            }
+            
+            let features = geojsonData.type === "FeatureCollection" ? geojsonData.features : [geojsonData];
+            features = features.filter(f => {
+                const geomType = f.geometry && f.geometry.type;
+                return geomType === 'Polygon' || geomType === 'MultiPolygon';
+            });
+
+            if (features.length === 0) {
+                showMessage("No polygons found in the file. Points and lines have been ignored.", true);
+                document.getElementById('customShapeCountDisplay').textContent = `0 selected`;
+                return;
+            }
+
+            geojsonData = { type: "FeatureCollection", features: features };
+            let featureCount = features.length;
+
+            customShapesLayer = L.geoJSON(geojsonData, {
+                style: getCustomShapeStyle,
+                onEachFeature: (feature, layer) => {
+                    if (featureCount === 1) {
+                        selectedCustomShapes.add(feature);
+                    }
+                    
+                    layer.on('click', () => {
+                        if (currentMode !== 'shapefile') return;
+                        if (selectedCustomShapes.has(feature)) selectedCustomShapes.delete(feature);
+                        else selectedCustomShapes.add(feature);
+                        customShapesLayer.resetStyle(layer);
+                        document.getElementById('customShapeCountDisplay').textContent = `${selectedCustomShapes.size} selected`;
+                    });
+                    
+                    const name = feature.properties?.NAME || feature.properties?.name || "Custom Shape";
+                    layer.bindTooltip(name);
+                }
+            });
+
+            if (currentMode === 'shapefile') map.addLayer(customShapesLayer);
+            if (customShapesLayer.getLayers().length > 0) {
+                map.fitBounds(customShapesLayer.getBounds());
+            }
+            document.getElementById('customShapeCountDisplay').textContent = `${selectedCustomShapes.size} selected`;
+        }
+
+        function getCustomShapeStyle(feature) {
+            const isSelected = selectedCustomShapes.has(feature);
+            return {
+                fillColor: isSelected ? '#a855f7' : '#94a3b8',
+                weight: 1, opacity: 0.8, color: 'white',
+                fillOpacity: isSelected ? 0.7 : 0.2
+            };
+        }
+
+        function clearCustomShapes() {
+            if (customShapesLayer) {
+                map.removeLayer(customShapesLayer);
+                customShapesLayer = null;
+            }
+            selectedCustomShapes.clear();
+            document.getElementById('customShapeCountDisplay').textContent = `0 selected`;
+            updateOutput('<div class="results-summary text-center text-gray-500">Custom shapes cleared.</div>');
+        }
+
+        function selectAllCustomShapes() {
+            if (!customShapesLayer) {
+                showMessage("Please load a shapefile or preset first.", true);
+                return;
+            }
+            customShapesLayer.eachLayer(layer => {
+                selectedCustomShapes.add(layer.feature);
+            });
+            customShapesLayer.eachLayer(layer => customShapesLayer.resetStyle(layer));
+            document.getElementById('customShapeCountDisplay').textContent = `${selectedCustomShapes.size} selected`;
+        }
+
+        function clearCustomShapeSelection() {
+            selectedCustomShapes.clear();
+            if (customShapesLayer) {
+                customShapesLayer.eachLayer(layer => customShapesLayer.resetStyle(layer));
+            }
+            document.getElementById('customShapeCountDisplay').textContent = `0 selected`;
         }
 
         function clearPoints() {
@@ -627,7 +1011,22 @@
                 return await generateLocationInCounties();
             } else if (currentMode === 'draw') {
                 return await generateLocationInDrawn();
+            } else if (currentMode === 'shapefile') {
+                return await generateLocationInCustomShapes();
             }
+        }
+
+        async function generateLocationInCustomShapes() {
+            if (selectedCustomShapes.size === 0) {
+                showMessage("Select at least one shape on the map.", true);
+                return null;
+            }
+            const features = Array.from(selectedCustomShapes);
+            const selectedFeature = pickFeatureByArea(features);
+            const shapeName = selectedFeature.properties?.NAME || selectedFeature.properties?.name || "Custom Area";
+            
+            const rawPoint = await generatePointInPolygonFeature(selectedFeature, "Custom Map", shapeName);
+            return await finalizePointDetails(rawPoint);
         }
 
         async function generateLocationInCounties() {
